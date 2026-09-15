@@ -240,11 +240,20 @@ export class SafeUrlPolicy {
       // Undici Agent with DNS pinning to pinned IP, enforcing TLS verification & SNI
       const dispatcher = new Agent({
         connect: {
-          lookup: (_hostname: string, _opts: any, cb: any) => {
+          lookup: (_hostname: string, opts: any, cb: any) => {
+            if (typeof opts === 'function') {
+              cb = opts;
+              opts = {};
+            }
             if (SafeDestinationPolicy.isIpBlocked(pinnedIp)) {
               cb(new Error(`SSRF TOCTOU Guard: Target IP ${pinnedIp} is blocked`), null as any, 4);
+              return;
+            }
+            const family = net.isIPv6(pinnedIp) ? 6 : 4;
+            if (opts && opts.all) {
+              cb(null, [{ address: pinnedIp, family }]);
             } else {
-              cb(null, pinnedIp, net.isIPv6(pinnedIp) ? 6 : 4);
+              cb(null, pinnedIp, family);
             }
           },
           rejectUnauthorized: true,

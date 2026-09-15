@@ -805,3 +805,74 @@ export async function exportToWordPress(payload: {
 export async function previewWordPressPayload(payload: WordPressPreviewRequest): Promise<WordPressPreviewResponse> {
   return exportToWordPress(payload);
 }
+
+// -------------------------------------------------------------
+// 12. World-Class Autonomous SEO Optimization Engine APIs
+// -------------------------------------------------------------
+
+export async function getSeoHealthAudit(websiteId: string): Promise<any> {
+  const res = await fetch(`/api/seo/audit/${websiteId}`, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch SEO health audit');
+  return res.json();
+}
+
+export async function getSeoKeywords(websiteId: string): Promise<any> {
+  const res = await fetch(`/api/seo/keywords/${websiteId}`, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch keyword intelligence');
+  return res.json();
+}
+
+export async function getCompetitorReport(websiteId: string, competitor?: string): Promise<any> {
+  const url = competitor
+    ? `/api/seo/competitors/${websiteId}?competitor=${encodeURIComponent(competitor)}`
+    : `/api/seo/competitors/${websiteId}`;
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch competitor report');
+  return res.json();
+}
+
+export async function analyzeCompetitorDomain(websiteId: string, competitorDomain: string): Promise<any> {
+  const res = await fetch(`/api/seo/competitors/${websiteId}/analyze`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ competitorDomain }),
+  });
+  if (!res.ok) throw new Error('Failed to analyze competitor domain');
+  return res.json();
+}
+
+export async function getStrategistTasks(websiteId: string): Promise<any> {
+  const res = await fetch(`/api/seo/strategist/${websiteId}/tasks`, { headers: getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch AI SEO strategist tasks');
+  return res.json();
+}
+
+export async function executeSeoAction(payload: {
+  websiteId: string;
+  taskId?: string;
+  actionType: string;
+  targetUrl: string;
+  actionPayload: Record<string, any>;
+  platform?: string;
+}): Promise<any> {
+  const res = await fetch('/api/seo/execute', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Action execution failed');
+  }
+  return res.json();
+}
+
+export async function runQuickOptimize(websiteId: string): Promise<any> {
+  const res = await fetch(`/api/seo/quick-optimize/${websiteId}`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to run autonomous quick optimize');
+  return res.json();
+}
+

@@ -18,6 +18,7 @@ import actionRoutes from './routes/actionRoutes';
 import authRoutes from './routes/authRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import agentRoutes from './routes/agentRoutes';
+import seoEngineRoutes from './routes/seoEngineRoutes';
 
 // Support BigInt serialization in JSON responses
 (BigInt.prototype as any).toJSON = function () {
@@ -92,6 +93,7 @@ export function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/agents', agentRoutes);
+  app.use('/api/seo', seoEngineRoutes);
 
   // Legacy route aliases for backward compatibility
   app.post('/api/crawl', (req, res, next) => {

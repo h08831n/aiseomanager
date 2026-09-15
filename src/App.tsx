@@ -40,6 +40,7 @@ import { AutonomousLoopModal } from './components/AutonomousLoopModal';
 import { CustomerJourneyModal } from './components/CustomerJourneyModal';
 
 // Views
+import { AutonomousSeoEngineView } from './components/views/AutonomousSeoEngineView';
 import { DashboardView } from './components/views/DashboardView';
 import { SEOAgentsView } from './components/views/SEOAgentsView';
 import { DecisionsView } from './components/views/DecisionsView';
@@ -53,7 +54,6 @@ import { IntegrationsView } from './components/views/IntegrationsView';
 import { AutonomySafetyView } from './components/views/AutonomySafetyView';
 import { AICopilotView } from './components/views/AICopilotView';
 import { SettingsView } from './components/views/SettingsView';
-import { BillingView } from './components/views/BillingView';
 
 const defaultEmptyHealthState: SEOHealthState = {
   overallScore: 0,
@@ -63,7 +63,7 @@ const defaultEmptyHealthState: SEOHealthState = {
 };
 
 export function App() {
-  const [currentTab, setCurrentTab] = useState<SaaSTabId>('dashboard');
+  const [currentTab, setCurrentTab] = useState<SaaSTabId>('seo-engine');
   const [session, setSession] = useState<any>(null);
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<any>(null);
@@ -516,6 +516,18 @@ export function App() {
               </div>
             )}
 
+            {currentTab === 'seo-engine' && (
+              <AutonomousSeoEngineView
+                selectedWebsite={activeOrPlaceholderSite}
+                onSelectWebsite={(site) => setSelectedWebsite(site)}
+                onRefreshData={() => {
+                  if (selectedWebsite?.id) {
+                    loadDashboardData(selectedWebsite.id);
+                  }
+                }}
+              />
+            )}
+
             {currentTab === 'dashboard' && (
               <DashboardView
                 website={activeOrPlaceholderSite}
@@ -665,10 +677,6 @@ export function App() {
 
             {currentTab === 'settings' && (
               <SettingsView website={activeOrPlaceholderSite} />
-            )}
-
-            {currentTab === 'billing' && (
-              <BillingView />
             )}
           </div>
         </main>

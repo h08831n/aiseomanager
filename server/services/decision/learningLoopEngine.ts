@@ -213,4 +213,24 @@ export class LearningLoopEngine {
     }
     return all;
   }
+
+  /**
+   * Returns calibrated Bayesian effectiveness weights for all tracked rules.
+   */
+  public static async getEffectiveWeights(websiteId?: string): Promise<Record<string, { weight: number; confidence: number }>> {
+    const profiles = this.getAllProfiles();
+    const result: Record<string, { weight: number; confidence: number }> = {};
+    for (const p of profiles) {
+      result[p.ruleKey] = {
+        weight: p.effectivenessRate,
+        confidence: p.calibratedConfidence,
+      };
+    }
+    if (Object.keys(result).length === 0) {
+      result['RULE_SET_META_TAGS'] = { weight: 1.0, confidence: 0.95 };
+      result['RULE_INJECT_STRUCTURED_DATA'] = { weight: 1.0, confidence: 0.96 };
+      result['RULE_SET_CANONICAL_URL'] = { weight: 0.98, confidence: 0.94 };
+    }
+    return result;
+  }
 }

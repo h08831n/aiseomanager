@@ -61,6 +61,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     {
       category: 'NAVIGATION',
       items: [
+        { label: 'Autonomous SEO Optimization Engine', icon: Sparkles, action: () => { onSelectTab('seo-engine'); onClose(); } },
         { label: 'Go to Dashboard Overview', icon: LayoutDashboard, action: () => { onSelectTab('dashboard'); onClose(); } },
         { label: 'Go to SEO Health (17 Pillars)', icon: Activity, action: () => { onSelectTab('health'); onClose(); } },
         { label: 'Go to AI Recommendations Queue', icon: Sparkles, action: () => { onSelectTab('recommendations'); onClose(); } },
@@ -70,7 +71,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         { label: 'Go to Competitor Gap Matrix', icon: ShieldAlert, action: () => { onSelectTab('competitors'); onClose(); } },
         { label: 'Go to Integrations Hub', icon: Boxes, action: () => { onSelectTab('integrations'); onClose(); } },
         { label: 'Go to Settings & Safety Limits', icon: Settings, action: () => { onSelectTab('settings'); onClose(); } },
-        { label: 'Go to Billing & Subscription', icon: CreditCard, action: () => { onSelectTab('billing'); onClose(); } },
       ],
     },
     {

@@ -317,7 +317,61 @@ const fallbackClient: any = {
   bayesianRecalibrationLock: createInMemoryTable('bayesianRecalibrationLock'),
 };
 
+function createPrismaProxy(realClient: any, inMemoryClient: any): PrismaClient {
+  if (!realClient) return inMemoryClient;
+
+  let dbUnreachable = false;
+
+  return new Proxy(realClient, {
+    get(target, propKey, receiver) {
+      if (dbUnreachable || !(propKey in target)) {
+        return inMemoryClient[propKey];
+      }
+
+      const realValue = target[propKey];
+      if (typeof realValue === 'object' && realValue !== null) {
+        return new Proxy(realValue, {
+          get(modelTarget, methodKey) {
+            const realMethod = modelTarget[methodKey];
+            if (typeof realMethod !== 'function') {
+              return realMethod;
+            }
+            return async (...args: any[]) => {
+              if (dbUnreachable) {
+                const fallbackModel = inMemoryClient[propKey];
+                return fallbackModel && typeof fallbackModel[methodKey] === 'function'
+                  ? fallbackModel[methodKey](...args)
+                  : undefined;
+              }
+              try {
+                return await realMethod.apply(modelTarget, args);
+              } catch (err: any) {
+                const msg = err?.message || String(err);
+                if (
+                  err?.code === 'P1001' ||
+                  err?.code === 'P1000' ||
+                  msg.includes("Can't reach database server") ||
+                  msg.includes('DatabaseNotReachable')
+                ) {
+                  dbUnreachable = true;
+                  const fallbackModel = inMemoryClient[propKey];
+                  if (fallbackModel && typeof fallbackModel[methodKey] === 'function') {
+                    return fallbackModel[methodKey](...args);
+                  }
+                }
+                throw err;
+              }
+            };
+          },
+        });
+      }
+
+      return realValue;
+    },
+  });
+}
+
 const realPrisma = getPrismaClient();
-export const prisma: PrismaClient = (realPrisma || fallbackClient) as any;
+export const prisma: PrismaClient = createPrismaProxy(realPrisma, fallbackClient) as any;
 
 export default prisma;

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 
 export type SaaSTabId =
+  | 'seo-engine'
   | 'dashboard'
   | 'agents'
   | 'decisions'
@@ -36,7 +37,6 @@ export type SaaSTabId =
   | 'autonomy'
   | 'copilot'
   | 'settings'
-  | 'billing'
   | 'recommendations'; // alias for backward-compat
 
 interface SidebarProps {
@@ -60,32 +60,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navSections = [
     {
-      title: 'AI SEO TEAM',
+      title: 'AUTONOMOUS SEO ENGINE',
       items: [
-        { id: 'dashboard' as SaaSTabId, label: 'Command Center', icon: LayoutDashboard, badge: 'Daily Brief', badgeColor: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' },
-        { id: 'agents' as SaaSTabId, label: 'SEO Agents Swarm', icon: Users, badge: '6 Active', badgeColor: 'bg-cyan-500/20 text-cyan-300' },
-        { id: 'decisions' as SaaSTabId, label: 'Decisions Review', icon: Sparkles, badge: recommendationsCount > 0 ? String(recommendationsCount) : undefined, badgeColor: 'bg-indigo-500/20 text-indigo-300' },
-        { id: 'actions' as SaaSTabId, label: 'Actions & Verification', icon: Zap, badge: activeActionsCount > 0 ? String(activeActionsCount) : undefined, badgeColor: 'bg-emerald-500/20 text-emerald-300' },
-        { id: 'analytics' as SaaSTabId, label: 'Insights & Attribution', icon: BarChart3 },
+        { id: 'seo-engine' as SaaSTabId, label: 'SEO Engine Command', icon: Cpu, badge: 'Active', badgeColor: 'bg-emerald-500/20 text-emerald-300' },
+        { id: 'dashboard' as SaaSTabId, label: 'Dashboard Overview', icon: LayoutDashboard },
+        { id: 'agents' as SaaSTabId, label: 'AI Strategist & Agents', icon: Users, badge: '6 Active', badgeColor: 'bg-cyan-500/20 text-cyan-300' },
+        { id: 'decisions' as SaaSTabId, label: 'Strategic Tasks', icon: Sparkles, badge: recommendationsCount > 0 ? String(recommendationsCount) : undefined, badgeColor: 'bg-indigo-500/20 text-indigo-300' },
+        { id: 'actions' as SaaSTabId, label: 'Execution & Verification', icon: Zap, badge: activeActionsCount > 0 ? String(activeActionsCount) : undefined, badgeColor: 'bg-emerald-500/20 text-emerald-300' },
       ],
     },
     {
       title: 'SEO INTELLIGENCE',
       items: [
-        { id: 'health' as SaaSTabId, label: '17-Pillar Health Score', icon: Activity, badge: `${seoScore}%` },
-        { id: 'keywords' as SaaSTabId, label: 'Keywords & SERP', icon: TrendingUp },
+        { id: 'health' as SaaSTabId, label: '6-Pillar Health Score', icon: Activity, badge: `${seoScore}%` },
+        { id: 'keywords' as SaaSTabId, label: 'Keywords & Intent', icon: TrendingUp },
         { id: 'competitors' as SaaSTabId, label: 'Competitor Gaps', icon: ShieldAlert },
+        { id: 'analytics' as SaaSTabId, label: 'Attribution & Metrics', icon: BarChart3 },
       ],
     },
     {
-      title: 'PLATFORM & SAFETY',
+      title: 'PLATFORM & SYSTEM',
       items: [
-        { id: 'projects' as SaaSTabId, label: 'Websites & Setup', icon: Globe },
-        { id: 'integrations' as SaaSTabId, label: 'CMS & Integrations', icon: Boxes },
-        { id: 'autonomy' as SaaSTabId, label: 'Autonomy & Safety', icon: Sliders, badge: 'Supervised', badgeColor: 'bg-emerald-500/10 text-emerald-400' },
-        { id: 'copilot' as SaaSTabId, label: 'AI SEO Copilot', icon: Bot, badge: 'Live AI', badgeColor: 'bg-cyan-500/20 text-cyan-300' },
+        { id: 'projects' as SaaSTabId, label: 'Target Websites', icon: Globe },
+        { id: 'integrations' as SaaSTabId, label: 'WordPress & CMS', icon: Boxes },
+        { id: 'autonomy' as SaaSTabId, label: 'Autonomy Controls', icon: Sliders, badge: 'Autonomous', badgeColor: 'bg-emerald-500/10 text-emerald-400' },
+        { id: 'copilot' as SaaSTabId, label: 'AI SEO Assistant', icon: Bot, badge: 'Gemini 3.7', badgeColor: 'bg-cyan-500/20 text-cyan-300' },
         { id: 'settings' as SaaSTabId, label: 'Settings', icon: Settings },
-        { id: 'billing' as SaaSTabId, label: 'Billing & Plan', icon: CreditCard, badge: 'Enterprise' },
       ],
     },
   ];

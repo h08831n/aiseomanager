@@ -21,8 +21,24 @@ export class SyntheticHttpFetcher {
    * Performs a synthetic or live HTTP fetch and parses the returned HTML document DOM using Cheerio.
    */
   public static async fetchAndParse(targetUrl: string, platform?: string): Promise<ParsedDomResult> {
-    // 1. If in production or targeting real HTTP(S) URLs, attempt live SSRF-safe probe
-    if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+    // 1. Check if CMS provider has actively modified state for this target URL
+    const provider = CmsProviderRegistry.getProvider(platform);
+    const redirect = await provider.getRedirectRule(targetUrl);
+    const canonical = await provider.getCanonicalUrl(targetUrl);
+    const meta = await provider.getMetaTags(targetUrl);
+    const schemas = await provider.getStructuredData(targetUrl);
+    const links = await provider.getInternalLinks(targetUrl);
+
+    const hasProviderState = Boolean(
+      redirect ||
+      canonical ||
+      meta ||
+      (schemas && schemas.length > 0) ||
+      (links && links.length > 0)
+    );
+
+    // 2. If provider has no custom state and URL is http(s), attempt live verification probe
+    if (!hasProviderState && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
       try {
         const liveObs = await ProductionHttpVerifier.verifyLiveUrl(targetUrl);
         if (liveObs && liveObs.httpStatus >= 200 && liveObs.httpStatus < 400 && (liveObs.canonicalUrl || liveObs.title || liveObs.description)) {
@@ -46,10 +62,7 @@ export class SyntheticHttpFetcher {
       }
     }
 
-    // 2. In local test/simulation mode with mock URLs, synthesize the wire response from CMS provider state
-    const provider = CmsProviderRegistry.getProvider(platform);
-    const redirect = await provider.getRedirectRule(targetUrl);
-
+    // 3. Synthesize the wire response from CMS provider state
     let rawHtml: string = '';
     let httpStatus = 200;
     const headers: Record<string, string> = {
@@ -64,11 +77,6 @@ export class SyntheticHttpFetcher {
       headers['location'] = redirect.destinationUrl;
       rawHtml = `<!DOCTYPE html><html><head><title>301 Moved Permanently</title></head><body>Redirecting to <a href="${redirect.destinationUrl}">${redirect.destinationUrl}</a></body></html>`;
     } else {
-      const canonical = await provider.getCanonicalUrl(targetUrl);
-      const meta = await provider.getMetaTags(targetUrl);
-      const schemas = await provider.getStructuredData(targetUrl);
-      const links = await provider.getInternalLinks(targetUrl);
-
       httpStatus = 200;
       rawHtml = `<!DOCTYPE html>
 <html lang="en">
