@@ -86,8 +86,10 @@ export class SitemapService {
 
     try {
       const fetchResult = await SafeUrlPolicy.safeFetch(sitemapUrl, {
-        timeoutMs: 10000,
+        timeoutMs: 12000,
         maxRedirects: 3,
+        userAgent:
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 (compatible; AISEOManagerBot/2.0)',
         maxResponseBytes: this.MAX_SITEMAP_BYTES,
         allowedContentTypes: ['application/xml', 'text/xml', 'application/gzip', 'application/x-gzip', 'text/plain', '*/*'],
       });
@@ -125,7 +127,7 @@ export class SitemapService {
 
         result.sitemapIndexUrls.push(...nestedSitemaps);
 
-        for (const nestedUrl of nestedSitemaps) {
+        for (const nestedUrl of nestedSitemaps.slice(0, 5)) {
           if (globalUrlCountRef.count >= this.MAX_GLOBAL_SITEMAP_URLS) break;
           const subResult = await this.discoverUrlsFromSitemap(nestedUrl, currentDepth + 1, visitedSitemaps, globalUrlCountRef);
           result.discoveredUrls.push(...subResult.discoveredUrls);

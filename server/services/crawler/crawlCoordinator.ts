@@ -13,6 +13,7 @@ import { DuplicateContentAnalyzer } from './duplicateContentAnalyzer';
 import { LinkGraphBuilder, DiscoveredLink } from './linkGraphBuilder';
 import { ExpandedTechnicalIssueDetector } from './expandedTechnicalIssueDetector';
 import { CrawlSnapshotComparator, CrawledPageSnapshot } from './crawlSnapshotComparator';
+import { CrawlCoverageAnalyzer, CrawlCoverageReport } from './crawlCoverageAnalyzer';
 import {
   CrawlRepository,
   CrawledPageRecord,
@@ -36,6 +37,17 @@ export interface CrawlConfiguration {
   includeSubdomains?: boolean;
   includePatterns?: string[];
   excludePatterns?: string[];
+}
+
+export interface CrawlExecutionResult {
+  crawlRunId: string;
+  totalPages: number;
+  totalIssues: number;
+  durationMs: number;
+  status: string;
+  coverageReport: CrawlCoverageReport;
+  crawledPages: CrawledPageRecord[];
+  crawlIssues: CrawlIssueRecord[];
 }
 
 export class CrawlCoordinator {
@@ -75,14 +87,18 @@ export class CrawlCoordinator {
     totalIssues: number;
     durationMs: number;
     status: string;
+    coverageReport: CrawlCoverageReport;
+    crawledPages: CrawledPageRecord[];
+    crawlIssues: CrawlIssueRecord[];
   }> {
     const {
       websiteId,
       seedUrl,
-      userAgent = 'AISEOManagerBot/2.0 (+https://techscale.io/bot)',
+      userAgent =
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 (compatible; AISEOManagerBot/2.0)',
       maxUrls = 50,
       maxDepth = 3,
-      requestTimeoutMs = 8000,
+      requestTimeoutMs = 12000,
       maxResponseBytes = 4 * 1024 * 1024,
       maxRedirects = 5,
       respectRobots = true,
@@ -177,12 +193,41 @@ export class CrawlCoordinator {
         if (abortController.signal.aborted) {
           await CrawlRepository.updateCrawlRun(crawlRunId, { status: 'CANCELLED', completedAt: new Date().toISOString() });
           this.activeCrawlControllers.delete(crawlRunId);
+          const emptyCoverage: CrawlCoverageReport = {
+            crawlRunId,
+            websiteId,
+            seedUrl,
+            discoveredUrls: crawledPagesBuffer.length,
+            pagesAnalyzed: crawledPagesBuffer.length,
+            crawlCoveragePercentage: 100,
+            sitemapCoverage: {
+              sitemapsDiscovered: [],
+              totalSitemapUrls: 0,
+              sitemapUrlsCrawled: 0,
+              sitemapCoveragePercentage: 100,
+            },
+            skippedUrls: { totalSkipped: 0, reasons: {}, sampleUrls: [] },
+            crawlConfidenceScore: 0.1,
+            confidenceBreakdown: {
+              sampleAdequacyFactor: 0.1,
+              coverageFactor: 0.1,
+              fetchSuccessFactor: 0.1,
+              sitemapFactor: 0.1,
+            },
+            isSufficientForAutonomousAction: false,
+            autonomousSafetyStatus: 'BLOCKED_LOW_CONFIDENCE',
+            safetyMessage: 'Crawl cancelled before completion',
+            analyzedAt: new Date().toISOString(),
+          };
           return {
             crawlRunId,
             totalPages: crawledPagesBuffer.length,
             totalIssues: detectedIssuesBuffer.length,
             durationMs: Date.now() - startTime,
             status: 'CANCELLED',
+            coverageReport: emptyCoverage,
+            crawledPages: crawledPagesBuffer,
+            crawlIssues: detectedIssuesBuffer,
           };
         }
 
@@ -654,14 +699,40 @@ export class CrawlCoordinator {
       const durationMs = Date.now() - startTime;
       const allFrontierItems = await frontier.getAllItems();
 
+      const failedItems = allFrontierItems.filter((i) => i.status === 'FAILED');
+      const skippedItems = allFrontierItems
+        .filter((i) => i.status !== 'FETCHED' && i.status !== 'FAILED')
+        .map((i) => ({ url: i.url, reason: i.status === 'BLOCKED_ROBOTS' ? 'ROBOTS_DISALLOWED' : 'CRAWL_BUDGET_CAPPED' }));
+
+      const sitemapItems = allFrontierItems.filter((i) => i.discoverySource === 'SITEMAP');
+      const sitemapCrawledCount = crawledPagesBuffer.filter((p) =>
+        sitemapItems.some((s) => s.normalizedUrl === p.normalizedUrl)
+      ).length;
+
+      const coverageReport = CrawlCoverageAnalyzer.analyzeCoverage({
+        websiteId,
+        seedUrl,
+        crawlRunId,
+        pages: crawledPagesBuffer,
+        issues: detectedIssuesBuffer,
+        frontierDiscoveredUrls: allFrontierItems.map((i) => i.normalizedUrl),
+        sitemapsDiscovered,
+        sitemapUrlsCount: sitemapItems.length,
+        sitemapUrlsCrawledCount: sitemapCrawledCount,
+        failedUrlsCount: failedItems.length,
+        skippedUrlsList: skippedItems,
+      });
+
       await CrawlRepository.updateCrawlRun(crawlRunId, {
         status: terminalStatus,
         completedAt: new Date().toISOString(),
         durationMs,
         totalPages: crawledPagesBuffer.length,
         totalIssues: detectedIssuesBuffer.length,
-        urlsDiscovered: allFrontierItems.length,
+        urlsDiscovered: coverageReport.discoveredUrls,
         urlsFetched: crawledPagesBuffer.length,
+        urlsSkipped: coverageReport.skippedUrls.totalSkipped,
+        urlsFailed: failedItems.length,
         sitemapsDiscovered,
       });
 
@@ -673,6 +744,9 @@ export class CrawlCoordinator {
         totalIssues: detectedIssuesBuffer.length,
         durationMs,
         status: terminalStatus,
+        coverageReport,
+        crawledPages: crawledPagesBuffer,
+        crawlIssues: detectedIssuesBuffer,
       };
     } catch (err: any) {
       await CrawlRepository.updateCrawlRun(crawlRunId, {

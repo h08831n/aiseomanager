@@ -10,6 +10,8 @@ import { AutonomousExecutionEngine } from '../services/action/autonomousExecutio
 import { prisma } from '../db/prisma';
 import { z } from 'zod';
 
+import { ProductionValidationWorkflow } from '../services/validation/productionValidationWorkflow';
+
 const router = Router();
 
 // GET /api/seo/audit/:websiteId - Real 6-Pillar Health Audit
@@ -215,6 +217,36 @@ router.post('/quick-optimize/:websiteId', requireWebsiteAccess('EDITOR'), async 
     executionResults,
     message: `Autonomous SEO optimization completed. Executed ${executionResults.length} safe tasks with full live DOM verification.`,
   });
+});
+
+// POST /api/seo/validation/run - Run real website autonomous SEO validation
+router.post('/validation/run', async (req: Request, res: Response) => {
+  try {
+    const { websiteUrl = 'https://ahaninja.com', maxPagesToCrawl = 25, forceSkipSafetyGate = false } = req.body;
+    const result = await ProductionValidationWorkflow.executeRealWebsiteValidation({
+      websiteUrl,
+      maxPagesToCrawl,
+      forceSkipSafetyGate,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Validation workflow error:', err);
+    return res.status(500).json({ error: 'Production validation failed', message: err.message });
+  }
+});
+
+// GET /api/seo/validation/ahaninja - Quick test endpoint for target site
+router.get('/validation/ahaninja', async (req: Request, res: Response) => {
+  try {
+    const result = await ProductionValidationWorkflow.executeRealWebsiteValidation({
+      websiteUrl: 'https://ahaninja.com',
+      maxPagesToCrawl: 20,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Validation ahaninja error:', err);
+    return res.status(500).json({ error: 'Production validation failed', message: err.message });
+  }
 });
 
 export default router;

@@ -94,9 +94,10 @@ function createInMemoryTable(tableName: string) {
       }
       return null;
     },
-    findFirst: async (args: any) => {
+    findFirst: async (args: any = {}) => {
+      const where = args?.where || {};
       for (const item of store.values()) {
-        if (matchesFilter(item, args.where)) return item;
+        if (matchesFilter(item, where)) return item;
       }
       return null;
     },
