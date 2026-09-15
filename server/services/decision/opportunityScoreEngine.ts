@@ -57,56 +57,120 @@ export class OpportunityScoreEngine {
 
   /**
    * Deterministic Opportunity Score Calculation:
-   * OpportunityScore = min(100, ((TrafficFactor * BusinessValue * Confidence) / (Effort * Risk)) * 10)
+   * Opportunity Score = (Impact × Probability × Confidence) / Effort
+   * Scaled to 0-100 with risk penalty adjustment.
    */
   public static calculateScore(params: {
-    potentialTrafficGain: number; // 1.0 to 10.0
+    potentialTrafficGain?: number; // 1.0 to 10.0 (Traffic Opportunity)
+    businessImpact?: number; // 1.0 to 10.0 (Business Impact)
+    trafficOpportunity?: number; // 1.0 to 10.0
+    rankingProbability?: number; // 0.05 to 1.0
     businessValueTier?: BusinessValueTier | string;
     businessValueWeight?: number; // 1.0 to 5.0
     confidenceScore: number; // 0.1 to 1.0
-    effortScore: number; // 1.0 to 5.0
-    riskScore: number; // 1.0 to 5.0
+    effortScore?: number; // 1.0 to 5.0 (Implementation Cost)
+    implementationCost?: number; // 1.0 to 5.0
+    riskScore?: number; // 1.0 to 5.0
+    riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
     ruleWeight?: number; // 0.2 to 2.5 (Bayesian multiplier)
   }): OpportunityScoreBreakdown {
-    const potentialTrafficGain = Math.min(10.0, Math.max(1.0, params.potentialTrafficGain));
-    const businessValueWeight =
-      params.businessValueWeight !== undefined
-        ? Math.min(5.0, Math.max(1.0, params.businessValueWeight))
-        : this.mapBusinessValueTierToWeight(params.businessValueTier);
+    // 1. Business Impact (1.0 to 10.0)
+    let businessImpact = params.businessImpact;
+    if (businessImpact === undefined) {
+      const baseWeight =
+        params.businessValueWeight !== undefined
+          ? params.businessValueWeight
+          : this.mapBusinessValueTierToWeight(params.businessValueTier);
+      businessImpact = Math.min(10.0, Math.max(1.0, baseWeight * 2.0));
+    } else {
+      businessImpact = Math.min(10.0, Math.max(1.0, businessImpact));
+    }
 
+    // 2. Traffic Opportunity (1.0 to 10.0)
+    const trafficOpportunity = Math.min(
+      10.0,
+      Math.max(1.0, params.trafficOpportunity ?? params.potentialTrafficGain ?? 5.0)
+    );
+
+    // Composite Impact (blends business impact and traffic opportunity on 1.0 to 10.0 scale)
+    const impact = Number((businessImpact * 0.60 + trafficOpportunity * 0.40).toFixed(2));
+
+    // 3. Ranking Probability (0.05 to 1.0)
+    const rankingProbability = Math.min(
+      1.0,
+      Math.max(0.05, params.rankingProbability ?? (0.45 + (trafficOpportunity / 10.0) * 0.40))
+    );
+
+    // 4. Confidence (0.1 to 1.0)
     const confidenceScore = Math.min(1.0, Math.max(0.1, params.confidenceScore));
-    const effortWeight = Math.min(5.0, Math.max(1.0, params.effortScore));
-    const riskWeight = Math.min(5.0, Math.max(1.0, params.riskScore));
+
+    // 5. Implementation Cost / Effort (1.0 to 5.0)
+    const implementationCost = Math.min(
+      5.0,
+      Math.max(1.0, params.implementationCost ?? params.effortScore ?? 2.0)
+    );
+
+    // 6. Risk (1.0 to 5.0) and Risk Level
+    let riskWeight = params.riskScore;
+    let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' = params.riskLevel || 'LOW';
+    if (riskWeight === undefined) {
+      if (params.riskLevel === 'HIGH') riskWeight = 3.5;
+      else if (params.riskLevel === 'MEDIUM') riskWeight = 2.0;
+      else riskWeight = 1.0;
+    } else {
+      riskWeight = Math.min(5.0, Math.max(1.0, riskWeight));
+      riskLevel = riskWeight >= 3.0 ? 'HIGH' : riskWeight >= 1.8 ? 'MEDIUM' : 'LOW';
+    }
+
     const ruleWeight = params.ruleWeight !== undefined ? Math.max(0.1, params.ruleWeight) : 1.0;
 
-    const numerator = potentialTrafficGain * businessValueWeight * confidenceScore * ruleWeight;
-    const denominator = effortWeight * riskWeight;
-    const rawScore = (numerator / denominator) * 10.0;
-    const score = Number(Math.min(100.0, Math.max(1.0, rawScore)).toFixed(1));
+    // Direct mathematical formula:
+    // Opportunity Score = (Impact × Probability × Confidence) / Effort
+    // With risk dampening: normalized to 0-100 scale: (Numerator / Denominator) * 10.0
+    const rawOpportunity = (impact * rankingProbability * confidenceScore * ruleWeight) / implementationCost;
+    const riskFactor = 1.0 + (riskWeight - 1.0) * 0.25; // 1.0 to 2.0 risk divisor
+    const scaledScore = (rawOpportunity / riskFactor) * 20.0;
+    const score = Number(Math.min(100.0, Math.max(1.0, scaledScore)).toFixed(1));
 
     let priority: 'P0_CRITICAL' | 'P1_HIGH' | 'P2_MEDIUM' | 'P3_LOW';
-    if (score >= 80.0 || (riskWeight <= 1.5 && businessValueWeight >= 4.5 && score >= 70.0)) {
+    if (score >= 75.0 || (riskLevel === 'LOW' && businessImpact >= 8.0 && score >= 65.0)) {
       priority = 'P0_CRITICAL';
-    } else if (score >= 65.0) {
+    } else if (score >= 55.0) {
       priority = 'P1_HIGH';
-    } else if (score >= 40.0) {
+    } else if (score >= 35.0) {
       priority = 'P2_MEDIUM';
     } else {
       priority = 'P3_LOW';
     }
 
-    const formulaDetails = `(${potentialTrafficGain} * ${businessValueWeight} * ${confidenceScore}${ruleWeight !== 1.0 ? ` * ${ruleWeight}` : ''}) / (${effortWeight} * ${riskWeight}) * 10 = ${score}`;
+    const formulaDetails =
+      `Opportunity Score = (Impact(${impact}) × Probability(${rankingProbability.toFixed(2)}) × Confidence(${confidenceScore.toFixed(2)})) / Effort(${implementationCost}) [RiskFactor=${riskFactor.toFixed(2)}] => ${score}/100`;
 
     return {
       score,
       priority,
-      potentialTrafficGain,
-      businessValueWeight,
+      businessImpact,
+      trafficOpportunity,
+      rankingProbability: Number(rankingProbability.toFixed(3)),
+      implementationCost,
+      risk: riskWeight,
+      riskLevel,
       confidenceScore,
-      effortWeight,
+      effortWeight: implementationCost,
       riskWeight,
+      potentialTrafficGain: trafficOpportunity,
+      businessValueWeight: businessImpact / 2.0,
       ruleWeight,
       formulaDetails,
     };
+  }
+
+  /**
+   * Sorts any collection of tasks descending by their opportunity score.
+   */
+  public static rankTasksByOpportunityScore<T extends { opportunityScore?: number; priority?: string }>(
+    tasks: T[]
+  ): T[] {
+    return [...tasks].sort((a, b) => (b.opportunityScore || 0) - (a.opportunityScore || 0));
   }
 }

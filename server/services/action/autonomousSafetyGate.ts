@@ -30,6 +30,13 @@ export interface SafetyCheckResult {
       snapshotCapable: boolean;
       details: string;
     };
+    highImpactApprovalOrExperiment: {
+      passed: boolean;
+      isHighImpact: boolean;
+      hasApproval: boolean;
+      isControlledExperiment: boolean;
+      details: string;
+    };
   };
 }
 
@@ -38,19 +45,29 @@ export class AutonomousSafetyGate {
   public static readonly MINIMUM_PAGES_ANALYZED = 15;
 
   /**
-   * Evaluates all 4 mandatory production autonomous safety gates:
-   * 1. Sufficient crawl confidence
-   * 2. Verified evidence
+   * Evaluates all mandatory production autonomous safety gates:
+   * 1. Sufficient crawl confidence (>= 0.70 & >= 15 pages)
+   * 2. Verified evidence (concrete DOM / audit proof)
    * 3. Low-risk action
-   * 4. Rollback available
+   * 4. Rollback available (atomic pre-execution snapshot)
+   * 5. High-impact SEO changes require human approval or controlled experiment
    */
   public static evaluateSafety(params: {
     task: GeneratedSeoTask;
     coverageReport?: CrawlCoverageReport;
     crawledPages?: CrawledPageRecord[];
     isRollbackSupported?: boolean;
+    hasManualApproval?: boolean;
+    isControlledExperiment?: boolean;
   }): SafetyCheckResult {
-    const { task, coverageReport, crawledPages = [], isRollbackSupported = true } = params;
+    const {
+      task,
+      coverageReport,
+      crawledPages = [],
+      isRollbackSupported = true,
+      hasManualApproval = false,
+      isControlledExperiment = false,
+    } = params;
 
     // 1. Check Crawl Confidence
     const crawlConfidence = coverageReport?.crawlConfidenceScore ?? 0.35;
@@ -106,12 +123,34 @@ export class AutonomousSafetyGate {
         : 'Target environment or provider does not support atomic pre-execution snapshot capture.',
     };
 
+    // 5. High-Impact SEO Changes Rule: High-impact changes require approval or controlled experiment
+    const isHighImpact =
+      task.priority === 'P0_CRITICAL' ||
+      task.riskLevel !== 'LOW' ||
+      task.actionType === 'SET_CANONICAL_URL' ||
+      task.actionType === 'CREATE_REDIRECT_RULE' ||
+      (task as any).opportunityScoreBreakdown?.businessImpact >= 75;
+
+    const highImpactPassed = !isHighImpact || hasManualApproval || isControlledExperiment;
+    const highImpactCheck = {
+      passed: highImpactPassed,
+      isHighImpact,
+      hasApproval: hasManualApproval,
+      isControlledExperiment,
+      details: !isHighImpact
+        ? 'Standard low-impact optimization; permitted for autonomous execution once safety gates pass.'
+        : highImpactPassed
+        ? `High-impact change authorized via ${hasManualApproval ? 'Explicit Human Approval' : 'Controlled Canary Experiment'}.`
+        : 'High-impact SEO changes (P0_CRITICAL, architecture, canonicals, redirects) require human approval or a controlled experiment before autonomous execution.',
+    };
+
     // Composite decision
     const allPassed =
       crawlConfidenceCheck.passed &&
       verifiedEvidenceCheck.passed &&
       lowRiskCheck.passed &&
-      rollbackCheck.passed;
+      rollbackCheck.passed &&
+      highImpactCheck.passed;
 
     let blockReason: string | undefined;
     if (!crawlConfidenceCheck.passed) {
@@ -122,6 +161,8 @@ export class AutonomousSafetyGate {
       blockReason = `SAFETY_BLOCKED_RISK_LEVEL: ${lowRiskCheck.details}`;
     } else if (!rollbackCheck.passed) {
       blockReason = `SAFETY_BLOCKED_NO_ROLLBACK: ${rollbackCheck.details}`;
+    } else if (!highImpactCheck.passed) {
+      blockReason = `SAFETY_BLOCKED_HIGH_IMPACT_APPROVAL_REQUIRED: ${highImpactCheck.details}`;
     }
 
     return {
@@ -132,6 +173,7 @@ export class AutonomousSafetyGate {
         verifiedEvidence: verifiedEvidenceCheck,
         lowRiskAction: lowRiskCheck,
         rollbackAvailable: rollbackCheck,
+        highImpactApprovalOrExperiment: highImpactCheck,
       },
     };
   }

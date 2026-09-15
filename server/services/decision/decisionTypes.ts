@@ -95,11 +95,17 @@ export interface DiagnosisResult {
 export interface OpportunityScoreBreakdown {
   score: number; // 0 to 100
   priority: 'P0_CRITICAL' | 'P1_HIGH' | 'P2_MEDIUM' | 'P3_LOW';
-  potentialTrafficGain: number;
-  businessValueWeight: number;
-  confidenceScore: number;
+  businessImpact: number; // 1.0 to 10.0
+  trafficOpportunity: number; // 1.0 to 10.0
+  rankingProbability: number; // 0.05 to 1.0
+  implementationCost: number; // 1.0 to 5.0 (Effort)
+  risk: number; // 1.0 to 5.0
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  confidenceScore: number; // 0.1 to 1.0
   effortWeight: number;
   riskWeight: number;
+  potentialTrafficGain: number;
+  businessValueWeight: number;
   ruleWeight?: number;
   formulaDetails: string;
 }
@@ -123,7 +129,12 @@ export interface RuleLearningProfile {
   successfulExecutions: number;
   failedExecutions: number;
   rolledBackExecutions: number;
-  effectivenessRate: number; // 0.0 to 1.0
-  calibratedConfidence: number; // dynamic confidence weight
+  effectivenessRate: number; // 0.0 to 1.0 (execution success)
+  performanceSuccessRate: number; // 0.0 to 1.0 (verified GSC lift)
+  observedPerformanceTrials: number; // Count of completed post-window trials
+  performanceVariance: number; // Variance across observed performance trials
+  hasCausalEvidence: boolean; // Confirmed causal lift vs synthetic control
+  calibratedConfidence: number; // dynamic Bayesian confidence weight
+  isConfidenceScaleUpAllowed: boolean; // Requires >= 3 observations + low variance + causal proof
   lastCalibratedAt: Date;
 }
