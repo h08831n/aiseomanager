@@ -11,12 +11,26 @@ export class ActionExecutorRouter {
   private static executors: Map<string, IActionExecutor> = new Map();
 
   static {
-    this.registerExecutor(new CanonicalActionExecutor());
-    this.registerExecutor(new MetaTagsActionExecutor());
-    this.registerExecutor(new StructuredDataActionExecutor());
-    this.registerExecutor(new RedirectActionExecutor());
-    this.registerExecutor(new InternalLinkActionExecutor());
-    this.registerExecutor(new ContentRefreshActionExecutor());
+    const canonical = new CanonicalActionExecutor();
+    const meta = new MetaTagsActionExecutor();
+    const schema = new StructuredDataActionExecutor();
+    const redirect = new RedirectActionExecutor();
+    const internalLink = new InternalLinkActionExecutor();
+    const contentRefresh = new ContentRefreshActionExecutor();
+
+    this.registerExecutor(canonical);
+    this.registerExecutor(meta);
+    this.registerExecutor(schema);
+    this.registerExecutor(redirect);
+    this.registerExecutor(internalLink);
+    this.registerExecutor(contentRefresh);
+
+    // Aliases matching the 5 core autonomous action categories
+    this.executors.set('UPDATE_METADATA', meta);
+    this.executors.set('UPDATE_SCHEMA', schema);
+    this.executors.set('IMPROVE_INTERNAL_LINKS', internalLink);
+    this.executors.set('CONTENT_OPTIMIZATION', contentRefresh);
+    this.executors.set('TECHNICAL_FIX', canonical);
   }
 
   public static registerExecutor(executor: IActionExecutor): void {
@@ -24,7 +38,8 @@ export class ActionExecutorRouter {
   }
 
   public static getExecutor(actionType: string): IActionExecutor {
-    const executor = this.executors.get(actionType);
+    const normalized = actionType.toUpperCase();
+    const executor = this.executors.get(normalized) || this.executors.get(actionType);
     if (!executor) {
       throw new Error(`No action executor registered for action type: '${actionType}'`);
     }
@@ -32,6 +47,7 @@ export class ActionExecutorRouter {
   }
 
   public static hasExecutor(actionType: string): boolean {
-    return this.executors.has(actionType);
+    const normalized = actionType.toUpperCase();
+    return this.executors.has(normalized) || this.executors.has(actionType);
   }
 }

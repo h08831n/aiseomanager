@@ -51,15 +51,15 @@ async function main() {
       console.log(`  - Calculation Source: ${task.confidenceCalculationSource}`);
     });
 
-    console.log('\n--- 4. PRODUCTION AUTONOMOUS SAFETY GATE ---');
-    console.log(`Evaluated Tasks: ${result.phase4_safetyEvaluation.totalEvaluated}`);
-    console.log(`Allowed Tasks: ${result.phase4_safetyEvaluation.passedTasksCount}`);
-    console.log(`Blocked Tasks: ${result.phase4_safetyEvaluation.blockedTasksCount}`);
-    result.phase4_safetyEvaluation.evaluations.forEach((e, idx) => {
-      console.log(`  Task #${idx + 1} (${e.actionType} - ${e.riskLevel}): Allowed = ${e.safetyCheck.allowed}`);
-      if (!e.safetyCheck.allowed) {
-        console.log(`    Block Reason: ${e.safetyCheck.blockReason}`);
-      }
+    console.log('\n--- 4. PRODUCTION AUTONOMOUS SAFETY GATE & SAFE PLAN ---');
+    console.log(`Total Planned Tasks: ${result.phase4_safeExecutionPlan.totalPlanned}`);
+    console.log(`Autonomous Ready: ${result.phase4_safeExecutionPlan.autonomousReadyCount}`);
+    console.log(`Approval Required: ${result.phase4_safeExecutionPlan.approvalRequiredCount}`);
+    result.phase4_safeExecutionPlan.autonomousBatch.forEach((e, idx) => {
+      console.log(`  Autonomous Action #${idx + 1} (${e.actionType}): Target = ${e.targetUrl}, Rollback = ${e.rollbackMethod.strategy}`);
+    });
+    result.phase4_safeExecutionPlan.approvalOrExperimentBatch.forEach((e, idx) => {
+      console.log(`  Approval Required #${idx + 1} (${e.actionType}): Blast Radius = ${e.risk.blastRadius}, Reason = ${e.risk.mitigationNotes}`);
     });
 
     if (result.phase5_experimentLifecycle?.status === 'SAFETY_BLOCKED') {
@@ -94,16 +94,15 @@ async function main() {
       console.log(`  Observed Changes: ${exp.verification?.observedChanges.join(' | ')}`);
       console.log(`  Indexable: ${exp.verification?.indexable}`);
 
-      console.log('\nImpact Measurement:');
-      console.log(`  Baseline Health Score: ${exp.impactMeasurement?.previousOverallScore}/100`);
-      console.log(`  Post-Experiment Health Score: ${exp.impactMeasurement?.newOverallScore}/100`);
-      console.log(`  Measured Real Gain: +${exp.impactMeasurement?.measuredDelta} points`);
-      console.log('  Pillar Improvements:');
-      for (const [pKey, delta] of Object.entries(exp.impactMeasurement?.pillarDeltas || {})) {
-        if (delta > 0) {
-          console.log(`    * ${pKey}: +${delta} points`);
-        }
-      }
+      console.log('\nImpact Measurement (Strict GSC & SERP Telemetry):');
+      console.log(`  Ranking Proof Source: ${exp.impactMeasurement?.rankingProofSource}`);
+      console.log(`  Internal Score Used As Proof: ${exp.impactMeasurement?.internalScoreUsedAsProof}`);
+      console.log(`  GSC Clicks Lift: +${exp.impactMeasurement?.clicksLiftPct}%`);
+      console.log(`  GSC Impressions Lift: +${exp.impactMeasurement?.impressionsLiftPct}%`);
+      console.log(`  GSC Position Improvement: +${exp.impactMeasurement?.positionImprovement} positions`);
+      console.log(`  SERP Position Delta: +${exp.impactMeasurement?.serpPositionDelta} positions`);
+      console.log(`  Statistically Significant: ${exp.impactMeasurement?.isStatisticallySignificant}`);
+      console.log(`  Internal Code Hygiene Delta (Diagnostic only): +${exp.impactMeasurement?.internalCodeHygieneDelta} pts`);
     }
 
     console.log('\n--- 6. HARDENED LEARNING LOOP CALIBRATION ---');
@@ -113,15 +112,17 @@ async function main() {
     console.log(`Total Tracked Executions: ${experimentResult.phase6_learningLoopSummary.totalExecutions}`);
     if (experimentResult.phase5_experimentLifecycle?.learningUpdate) {
       const lu = experimentResult.phase5_experimentLifecycle.learningUpdate;
-      console.log(`Empirical Expected Gain: ${lu.empiricalExpectedGain}%`);
-      console.log(`Measured Actual Gain: ${lu.measuredActualGain}%`);
-      console.log(`Empirical Variance: ${lu.variancePct}%`);
+      console.log(`Empirical GSC Lift: +${lu.empiricalGscLiftPct}%`);
+      console.log(`Rule Calibrated Confidence: ${lu.ruleCalibratedConfidence}`);
+      console.log(`Causal Evidence Confirmed: ${lu.causalEvidenceConfirmed}`);
     }
 
     console.log('\n========================================================================');
     console.log('PRODUCTION VALIDATION WORKFLOW SUMMARY:');
     console.log(`- Proven SEO Improvement: ${experimentResult.conclusion.provenAutonomousImprovement}`);
-    console.log(`- Pre-Score: ${experimentResult.conclusion.baselineScore} -> Post-Score: ${experimentResult.conclusion.postExperimentScore} (+${experimentResult.conclusion.measuredScoreGain} pts)`);
+    console.log(`- Ranking Proof Source: ${experimentResult.conclusion.rankingProofSource}`);
+    console.log(`- GSC Clicks Lift: +${experimentResult.conclusion.gscClicksLiftPct}% | GSC Position Improvement: +${experimentResult.conclusion.gscPositionImprovement} positions`);
+    console.log(`- Diagnostic Hygiene: +${experimentResult.conclusion.internalHygieneDelta} pts (Strictly diagnostic, not ranking proof)`);
     console.log('========================================================================\n');
   } catch (err) {
     console.error('Validation test run encountered error:', err);

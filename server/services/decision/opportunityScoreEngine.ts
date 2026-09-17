@@ -1,6 +1,8 @@
 import { BusinessValueTier } from '@prisma/client';
 import { OpportunityScoreBreakdown } from './decisionTypes';
 
+export type { OpportunityScoreBreakdown };
+
 export class OpportunityScoreEngine {
   /**
    * Business Value Tier mapping to 1.0 - 5.0 scale

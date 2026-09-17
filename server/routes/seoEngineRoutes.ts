@@ -11,6 +11,9 @@ import { prisma } from '../db/prisma';
 import { z } from 'zod';
 
 import { ProductionValidationWorkflow } from '../services/validation/productionValidationWorkflow';
+import { SafeExecutionPlanner } from '../services/action/safeExecutionPlanner';
+import { WebsiteImprovementReportService } from '../services/reporting/websiteImprovementReportService';
+import { CrawlCoverageAnalyzer } from '../services/crawler/crawlCoverageAnalyzer';
 
 const router = Router();
 
@@ -246,6 +249,142 @@ router.get('/validation/ahaninja', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Validation ahaninja error:', err);
     return res.status(500).json({ error: 'Production validation failed', message: err.message });
+  }
+});
+
+// GET /api/seo/report/ahaninja - 7-Part Real Website Improvement Report for ahaninja.com
+router.get('/report/ahaninja', async (req: Request, res: Response) => {
+  try {
+    const report = await WebsiteImprovementReportService.generateReport({
+      websiteUrl: 'https://ahaninja.com',
+      maxPagesToCrawl: 20,
+    });
+    return res.json(report);
+  } catch (err: any) {
+    console.error('Report ahaninja error:', err);
+    return res.status(500).json({ error: 'Report generation failed', message: err.message });
+  }
+});
+
+// POST /api/seo/report - Generate 7-Part Real Website Improvement Report for any domain
+router.post('/report', async (req: Request, res: Response) => {
+  try {
+    const { websiteUrl = 'https://ahaninja.com', maxPagesToCrawl = 20 } = req.body;
+    const report = await WebsiteImprovementReportService.generateReport({
+      websiteUrl,
+      maxPagesToCrawl,
+    });
+    return res.json(report);
+  } catch (err: any) {
+    console.error('Report generation error:', err);
+    return res.status(500).json({ error: 'Report generation failed', message: err.message });
+  }
+});
+
+// POST /api/seo/plan/:websiteId - Generate Safe Execution Plan
+router.post('/plan/:websiteId', requireWebsiteAccess('EDITOR'), async (req: Request, res: Response) => {
+  try {
+    const website = req.website!;
+    const [crawlData, issueData] = await Promise.all([
+      CrawlRepository.getLatestCrawledPages(website.id, 100),
+      CrawlRepository.getLatestCrawlIssues(website.id, 200),
+    ]);
+
+    const coverageReport = CrawlCoverageAnalyzer.analyzeCoverage({
+      websiteId: website.id,
+      seedUrl: website.domain.startsWith('http') ? website.domain : `https://${website.domain}`,
+      crawlRunId: 'ad-hoc-plan',
+      pages: crawlData.pages,
+      issues: issueData.issues,
+    });
+
+    const healthAudit = SeoScoringEngine.calculateHealthScores({
+      pages: crawlData.pages,
+      issues: issueData.issues,
+      coverageReport,
+    });
+
+    const tasks = await AiSeoStrategistService.generateStrategicTasks({
+      websiteId: website.id,
+      domain: website.domain,
+      pages: crawlData.pages,
+      issues: issueData.issues,
+      healthAudit,
+      keywords: [],
+    });
+
+    const plan = SafeExecutionPlanner.generatePlan({
+      websiteId: website.id,
+      domain: website.domain,
+      tasks,
+      coverageReport,
+      crawledPages: crawlData.pages,
+    });
+
+    return res.json(plan);
+  } catch (err: any) {
+    console.error('Plan generation error:', err);
+    return res.status(500).json({ error: 'Plan generation failed', message: err.message });
+  }
+});
+
+// POST /api/seo/plan/:websiteId/execute-safe-batch - Execute Autonomous Batch
+router.post('/plan/:websiteId/execute-safe-batch', requireWebsiteAccess('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const website = req.website!;
+    const { platform = 'WORDPRESS' } = req.body;
+
+    const [crawlData, issueData] = await Promise.all([
+      CrawlRepository.getLatestCrawledPages(website.id, 100),
+      CrawlRepository.getLatestCrawlIssues(website.id, 200),
+    ]);
+
+    const coverageReport = CrawlCoverageAnalyzer.analyzeCoverage({
+      websiteId: website.id,
+      seedUrl: website.domain.startsWith('http') ? website.domain : `https://${website.domain}`,
+      crawlRunId: 'ad-hoc-exec',
+      pages: crawlData.pages,
+      issues: issueData.issues,
+    });
+
+    const healthAudit = SeoScoringEngine.calculateHealthScores({
+      pages: crawlData.pages,
+      issues: issueData.issues,
+      coverageReport,
+    });
+
+    const tasks = await AiSeoStrategistService.generateStrategicTasks({
+      websiteId: website.id,
+      domain: website.domain,
+      pages: crawlData.pages,
+      issues: issueData.issues,
+      healthAudit,
+      keywords: [],
+    });
+
+    const plan = SafeExecutionPlanner.generatePlan({
+      websiteId: website.id,
+      domain: website.domain,
+      tasks,
+      coverageReport,
+      crawledPages: crawlData.pages,
+    });
+
+    const executionResults = await SafeExecutionPlanner.executeAutonomousBatch({
+      plan,
+      platform,
+    });
+
+    return res.json({
+      websiteId: website.id,
+      domain: website.domain,
+      autonomousBatchCount: plan.autonomousBatch.length,
+      executedCount: executionResults.executed.length,
+      executionResults,
+    });
+  } catch (err: any) {
+    console.error('Batch execution error:', err);
+    return res.status(500).json({ error: 'Batch execution failed', message: err.message });
   }
 });
 
