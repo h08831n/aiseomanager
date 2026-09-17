@@ -201,6 +201,11 @@ export class ProductionValidationWorkflow {
     const websiteImprovementReport = await WebsiteImprovementReportService.generateReport({
       websiteUrl: targetUrl,
       maxPagesToCrawl: options?.maxPagesToCrawl ?? 20,
+      existingCrawlResult: crawlResult,
+      existingHealthAudit: healthAudit,
+      existingTasks: generatedTasks,
+      existingSafePlan: safePlan,
+      existingExperimentResult: experimentResult,
     });
 
     const gscPositionImprovement = experimentResult?.impactMeasurement?.positionImprovement || 6.3;

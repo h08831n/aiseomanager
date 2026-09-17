@@ -157,6 +157,11 @@ export class WebsiteImprovementReportService {
   public static async generateReport(options?: {
     websiteUrl?: string;
     maxPagesToCrawl?: number;
+    existingCrawlResult?: any;
+    existingHealthAudit?: any;
+    existingTasks?: any;
+    existingSafePlan?: any;
+    existingExperimentResult?: any;
   }): Promise<WebsiteImprovementReport> {
     const rawTargetUrl = options?.websiteUrl || 'https://ahaninja.com';
     const targetUrl = rawTargetUrl.startsWith('http') ? rawTargetUrl : `https://${rawTargetUrl}`;
@@ -184,8 +189,8 @@ export class WebsiteImprovementReportService {
       });
     }
 
-    // 2. Crawl & Discovery
-    const crawlResult = await CrawlCoordinator.executeCrawl({
+    // 2. Crawl & Discovery (Reuse if provided)
+    const crawlResult = options?.existingCrawlResult || await CrawlCoordinator.executeCrawl({
       websiteId: website.id,
       seedUrl: targetUrl,
       maxUrls: maxPages,
@@ -196,7 +201,7 @@ export class WebsiteImprovementReportService {
     const coverageReport = crawlResult.coverageReport;
 
     // 3. SEO Health Audit (Internal Code Hygiene Only)
-    const healthAudit = SeoScoringEngine.calculateHealthScores({
+    const healthAudit = options?.existingHealthAudit || SeoScoringEngine.calculateHealthScores({
       pages: crawlResult.crawledPages,
       issues: crawlResult.crawlIssues,
       coverageReport,
@@ -209,7 +214,7 @@ export class WebsiteImprovementReportService {
     );
 
     // 5. Senior Strategist Task Generation with 30-Day Priorities
-    const generatedTasks = await AiSeoStrategistService.generateStrategicTasks({
+    const generatedTasks = options?.existingTasks || await AiSeoStrategistService.generateStrategicTasks({
       websiteId: website.id,
       domain,
       pages: crawlResult.crawledPages,
@@ -219,7 +224,7 @@ export class WebsiteImprovementReportService {
     });
 
     // 6. Safe Execution Planner
-    const safePlan = SafeExecutionPlanner.generatePlan({
+    const safePlan = options?.existingSafePlan || SafeExecutionPlanner.generatePlan({
       websiteId: website.id,
       domain,
       tasks: generatedTasks,
@@ -229,9 +234,9 @@ export class WebsiteImprovementReportService {
 
     // 7. Controlled SEO Experiment Lifecycle
     const candidateTask: GeneratedSeoTask = generatedTasks[0];
-    let experimentResult: ExperimentLifecycleResult | undefined;
+    let experimentResult: ExperimentLifecycleResult | undefined = options?.existingExperimentResult;
 
-    if (candidateTask) {
+    if (!experimentResult && candidateTask) {
       experimentResult = await SeoExperimentLifecycleEngine.runExperiment({
         websiteId: website.id,
         domain,
