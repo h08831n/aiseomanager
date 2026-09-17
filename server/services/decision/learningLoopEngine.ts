@@ -1,5 +1,6 @@
 import { prisma } from '../../db/prisma';
 import { RuleLearningProfile } from './decisionTypes';
+import { MetricProvenanceSource, ProvenanceGuard } from '../provenance/provenanceTypes';
 
 export interface PersistentLearningRecord {
   id: string;
@@ -9,6 +10,7 @@ export interface PersistentLearningRecord {
   evaluationStage: 'STAGE_3_VERIFIED_EXECUTION' | 'STAGE_6_POST_OBSERVATION_PERFORMANCE';
   executionSuccess: boolean;
   performanceSuccess: boolean | 'PENDING_OBSERVATION_WINDOW';
+  provenanceSource?: MetricProvenanceSource;
   prediction: {
     hypothesis: string;
     expectedGainPct?: number;
@@ -116,6 +118,7 @@ export class LearningLoopEngine {
     actionType?: string;
     outcome: 'SUCCESS' | 'FAILED' | 'ROLLED_BACK';
     isPostObservationPerformance?: boolean;
+    provenanceSource?: MetricProvenanceSource;
     metricDeltaPct?: number;
     causalLift?: number;
     syntheticControlDelta?: number;
@@ -135,6 +138,7 @@ export class LearningLoopEngine {
       actionExecutionId,
       actionType = 'SET_ACTION',
       isPostObservationPerformance = false,
+      provenanceSource,
       metricDeltaPct,
       causalLift,
       syntheticControlDelta,
@@ -143,6 +147,64 @@ export class LearningLoopEngine {
       expectedOutcome: inputExpectedOutcome,
       actualOutcome: inputActualOutcome,
     } = params;
+
+    // STRICT PROVENANCE ENFORCEMENT:
+    // Simulation results and internal diagnostics must NEVER update Bayesian confidence or rule effectiveness!
+    if (provenanceSource) {
+      if (provenanceSource === 'SIMULATION' || provenanceSource === 'INTERNAL_DIAGNOSTIC') {
+        const profile = this.getRuleProfile(ruleKey);
+        // Create an auditable record without touching profile metrics, effectiveness, or Bayesian confidence
+        const simulatedRecord: PersistentLearningRecord = {
+          id: `sim-lrn-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          ruleKey,
+          websiteId,
+          actionExecutionId,
+          evaluationStage: isPostObservationPerformance
+            ? 'STAGE_6_POST_OBSERVATION_PERFORMANCE'
+            : 'STAGE_3_VERIFIED_EXECUTION',
+          executionSuccess: outcome === 'SUCCESS',
+          performanceSuccess: false, // Never mark performance success from simulation/diagnostic
+          provenanceSource,
+          prediction: {
+            hypothesis: inputPrediction?.hypothesis || `[PROVENANCE_${provenanceSource}] Simulation/Diagnostic run`,
+            expectedGainPct: 0,
+            targetMetric: 'NONE',
+            estimationSource: 'EMPIRICAL_PRIOR',
+          },
+          confidence: profile.calibratedConfidence, // Unchanged
+          confidenceSource: `BLOCKED_PROVENANCE: Metrics originated from ${provenanceSource}. Bayesian confidence unchanged.`,
+          action: {
+            actionType,
+            ruleKey,
+            payloadSummary: `Simulated or Diagnostic execution on ${websiteId}`,
+          },
+          expectedOutcome: inputExpectedOutcome || {},
+          actualOutcome: {
+            ...(inputActualOutcome || {}),
+            provenanceBlocked: true,
+            reason: `${provenanceSource} cannot update learning engine`,
+          },
+          learningDelta: {
+            metricDeltaPct: 0,
+            variancePct: 0,
+            isPositiveGain: false,
+            notes: `PROVENANCE_GUARD: Prevented ${provenanceSource} from altering Bayesian confidence or effectiveness rates.`,
+          },
+          ruleEffectiveness: {
+            totalExecutions: profile.totalExecutions,
+            successRate: profile.effectivenessRate,
+            rollbackRate: Number((profile.rolledBackExecutions / Math.max(1, profile.totalExecutions)).toFixed(3)),
+            calibratedConfidence: profile.calibratedConfidence,
+            observedPerformanceTrials: profile.observedPerformanceTrials,
+            performanceSuccessRate: profile.performanceSuccessRate,
+            isConfidenceScaleUpAllowed: profile.isConfidenceScaleUpAllowed,
+          },
+          recordedAt: new Date(),
+        };
+
+        return { profile, learningRecord: simulatedRecord };
+      }
+    }
 
     // 1. Empirical Expected Gain Resolution
     const empiricalEstimation = this.computeEmpiricalExpectedGain(ruleKey, websiteId);
@@ -293,6 +355,7 @@ export class LearningLoopEngine {
       evaluationStage,
       executionSuccess: isExecutionSuccess,
       performanceSuccess,
+      provenanceSource: provenanceSource || 'GOOGLE_SEARCH_CONSOLE',
       prediction,
       confidence: learningConfidence,
       confidenceSource,
@@ -388,6 +451,13 @@ export class LearningLoopEngine {
       all.push(...list);
     }
     return all;
+  }
+
+  /**
+   * Returns complete learning history across all rules.
+   */
+  public static getLearningHistory(): PersistentLearningRecord[] {
+    return this.getLearningRecords();
   }
 
   /**

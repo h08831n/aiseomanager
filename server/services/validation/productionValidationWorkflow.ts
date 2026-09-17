@@ -32,13 +32,13 @@ export interface ProductionValidationResult {
   websiteImprovementReport?: WebsiteImprovementReport;
   conclusion: {
     provenAutonomousImprovement: boolean;
-    rankingProofSource: 'GOOGLE_SEARCH_CONSOLE_AND_SERP_TRACKING';
+    rankingProofSource: 'GOOGLE_SEARCH_CONSOLE' | 'SERP_PROVIDER' | 'INSUFFICIENT_TELEMETRY' | 'GOOGLE_SEARCH_CONSOLE_AND_SERP_TRACKING';
     internalScoreUsedAsProof: false;
     crawlConfidenceMet: boolean;
-    gscClicksLiftPct: number;
-    gscImpressionsLiftPct: number;
-    gscPositionImprovement: number;
-    syntheticControlAdjustedLift: number;
+    gscClicksLiftPct: number | null;
+    gscImpressionsLiftPct: number | null;
+    gscPositionImprovement: number | null;
+    syntheticControlAdjustedLift: number | null;
     internalHygieneDelta: number;
     auditLog: string[];
   };
@@ -208,11 +208,12 @@ export class ProductionValidationWorkflow {
       existingExperimentResult: experimentResult,
     });
 
-    const gscPositionImprovement = experimentResult?.impactMeasurement?.positionImprovement || 6.3;
-    const gscClicksLiftPct = experimentResult?.impactMeasurement?.clicksLiftPct || 34.2;
-    const gscImpressionsLiftPct = experimentResult?.impactMeasurement?.impressionsLiftPct || 28.4;
-    const syntheticControlAdjustedLift = experimentResult?.impactMeasurement?.syntheticControlAdjustedLift || 22.1;
+    const gscPositionImprovement = experimentResult?.impactMeasurement?.positionImprovement ?? null;
+    const gscClicksLiftPct = experimentResult?.impactMeasurement?.clicksLiftPct ?? null;
+    const gscImpressionsLiftPct = experimentResult?.impactMeasurement?.impressionsLiftPct ?? null;
+    const syntheticControlAdjustedLift = experimentResult?.impactMeasurement?.syntheticControlAdjustedLift ?? null;
     const internalHygieneDelta = experimentResult?.impactMeasurement?.internalCodeHygieneDelta || 0;
+    const hasEmpiricalProof = Boolean(experimentResult?.impactMeasurement?.hasEmpiricalProof);
 
     return {
       targetDomain: domain,
@@ -235,8 +236,8 @@ export class ProductionValidationWorkflow {
       },
       websiteImprovementReport,
       conclusion: {
-        provenAutonomousImprovement: gscPositionImprovement > 0 && experimentResult?.status === 'SUCCESS',
-        rankingProofSource: 'GOOGLE_SEARCH_CONSOLE_AND_SERP_TRACKING',
+        provenAutonomousImprovement: hasEmpiricalProof && (gscPositionImprovement ?? 0) > 0,
+        rankingProofSource: (experimentResult?.impactMeasurement?.rankingProofSource as any) || 'INSUFFICIENT_TELEMETRY',
         internalScoreUsedAsProof: false,
         crawlConfidenceMet: coverageReport.crawlConfidenceScore >= AutonomousSafetyGate.MINIMUM_CRAWL_CONFIDENCE,
         gscClicksLiftPct,

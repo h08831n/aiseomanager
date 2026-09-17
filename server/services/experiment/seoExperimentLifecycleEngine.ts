@@ -10,6 +10,7 @@ import { SyntheticHttpFetcher } from '../action/syntheticHttpFetcher';
 import { LearningLoopEngine, PersistentLearningRecord } from '../decision/learningLoopEngine';
 import { GscPerformanceFeedbackLoop, GscFeedbackEvaluationResult } from '../decision/gscPerformanceFeedbackLoop';
 import { UrlNormalizer } from '../crawler/urlNormalizer';
+import { MetricProvenanceSource } from '../provenance/provenanceTypes';
 
 export interface ExperimentStageLog {
   stage:
@@ -44,14 +45,16 @@ export interface ExperimentLifecycleResult {
       schemaTypes: string[];
     };
     gscBaseline: {
-      clicks: number;
-      impressions: number;
-      ctr: number;
-      avgPosition: number;
+      clicks: number | null;
+      impressions: number | null;
+      ctr: number | null;
+      avgPosition: number | null;
+      provenance: MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY';
     };
     serpTrackingBaseline: {
       keyword: string;
-      position: number;
+      position: number | null;
+      provenance: MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY';
     };
   };
   change?: {
@@ -68,24 +71,27 @@ export interface ExperimentLifecycleResult {
   };
   gscFeedback?: GscFeedbackEvaluationResult;
   impactMeasurement?: {
-    rankingProofSource: 'GOOGLE_SEARCH_CONSOLE_AND_SERP_TRACKING';
+    rankingProofSource: 'GOOGLE_SEARCH_CONSOLE' | 'SERP_PROVIDER' | 'INSUFFICIENT_TELEMETRY';
+    provenance: MetricProvenanceSource;
     internalScoreUsedAsProof: false;
-    clicksLiftPct: number;
-    impressionsLiftPct: number;
-    ctrDeltaPct: number;
-    positionImprovement: number;
-    serpPositionDelta: number;
-    conversionsLiftPct: number;
-    syntheticControlAdjustedLift: number;
+    hasEmpiricalProof: boolean;
+    clicksLiftPct: number | null;
+    impressionsLiftPct: number | null;
+    ctrDeltaPct: number | null;
+    positionImprovement: number | null;
+    serpPositionDelta: number | null;
+    conversionsLiftPct: number | null;
+    syntheticControlAdjustedLift: number | null;
     isStatisticallySignificant: boolean;
     internalCodeHygieneDelta: number;
   };
   learningUpdate?: {
     recordId: string;
-    empiricalGscLiftPct: number;
+    empiricalGscLiftPct: number | null;
     ruleCalibratedConfidence: number;
     ruleEffectivenessRate: number;
     causalEvidenceConfirmed: boolean;
+    provenanceBlocked: boolean;
   };
 }
 
@@ -129,17 +135,38 @@ export class SeoExperimentLifecycleEngine {
 
     const preDom = await SyntheticHttpFetcher.fetchAndParse(task.targetUrl, platform);
 
-    // Initial GSC and SERP Baseline Facts
+    // Initial GSC and SERP Baseline Facts from database if available
+    const gscFacts = await prisma.gscSearchAnalyticsFact.findMany({
+      where: {
+        websiteId,
+        pageUrl: task.targetUrl,
+      },
+      orderBy: { date: 'desc' },
+      take: 28,
+    });
+
+    const hasRealGsc = gscFacts.length > 0;
+    const gscBaselineClicks = hasRealGsc ? gscFacts.reduce((s, r) => s + r.clicks, 0) : null;
+    const gscBaselineImpressions = hasRealGsc ? gscFacts.reduce((s, r) => s + r.impressions, 0) : null;
+    const gscBaselineAvgPos = hasRealGsc
+      ? Number((gscFacts.reduce((s, r) => s + r.position, 0) / gscFacts.length).toFixed(1))
+      : null;
+    const gscBaselineCtr = hasRealGsc && (gscBaselineImpressions || 0) > 0
+      ? Number((((gscBaselineClicks || 0) / (gscBaselineImpressions || 1)) * 100).toFixed(2))
+      : null;
+
     const gscBaseline = {
-      clicks: 86,
-      impressions: 3420,
-      ctr: 2.51,
-      avgPosition: 18.4,
+      clicks: gscBaselineClicks,
+      impressions: gscBaselineImpressions,
+      ctr: gscBaselineCtr,
+      avgPosition: gscBaselineAvgPos,
+      provenance: (hasRealGsc ? 'GOOGLE_SEARCH_CONSOLE' : 'INSUFFICIENT_TELEMETRY') as MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY',
     };
 
     const serpTrackingBaseline = {
       keyword: task.targetKeyword || 'قیمت میلگرد و آهن آلات',
-      position: 18.4,
+      position: gscBaselineAvgPos ?? null,
+      provenance: (hasRealGsc ? 'GOOGLE_SEARCH_CONSOLE' : 'INSUFFICIENT_TELEMETRY') as MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY',
     };
 
     const baselineSnapshot = {
@@ -160,7 +187,9 @@ export class SeoExperimentLifecycleEngine {
       stage: 'STAGE_1_BASELINE',
       status: 'COMPLETED',
       timestamp: new Date().toISOString(),
-      summary: `Baseline recorded: GSC Avg Pos: ${gscBaseline.avgPosition}, Clicks: ${gscBaseline.clicks}/day, Impressions: ${gscBaseline.impressions}/day, SERP Keyword "${serpTrackingBaseline.keyword}" Rank: #${serpTrackingBaseline.position}. (Internal code hygiene score: ${baselineHealthAudit.overallScore}/100, not used as ranking proof).`,
+      summary: hasRealGsc
+        ? `Baseline recorded: GSC Avg Pos: ${gscBaseline.avgPosition}, Clicks: ${gscBaseline.clicks}/day, Impressions: ${gscBaseline.impressions}/day, SERP Keyword "${serpTrackingBaseline.keyword}" Rank: #${serpTrackingBaseline.position}. (Provenance: GOOGLE_SEARCH_CONSOLE. Internal code hygiene score: ${baselineHealthAudit.overallScore}/100 strictly diagnostic).`
+        : `Baseline recorded: Internal code hygiene score: ${baselineHealthAudit.overallScore}/100. GSC telemetry: INSUFFICIENT_DATA (Zero synthetic fallback metrics applied; awaiting live GSC sync).`,
       data: {
         gscBaseline,
         serpTrackingBaseline,
@@ -482,9 +511,13 @@ export class SeoExperimentLifecycleEngine {
       stage: 'STAGE_5_IMPACT_MEASUREMENT',
       status: 'COMPLETED',
       timestamp: new Date().toISOString(),
-      summary: `Impact verified via Google Search Console & SERP tracking: Clicks: +${clicksLiftPct}% | Impressions: +${impressionsLiftPct}% | CTR: +${ctrDeltaPct}% | Avg Position Improvement: +${positionImprovement} positions. Synthetic control adjusted lift: +${gscFeedback.syntheticControlAdjustedLift}%. (STRICT: Internal code hygiene delta +${internalHygieneDelta} pts logged for diagnostic reference only; never used as ranking proof).`,
+      summary: gscFeedback.hasSufficientData
+        ? `Impact verified via Google Search Console & SERP tracking: Clicks: ${clicksLiftPct}% | Impressions: ${impressionsLiftPct}% | CTR: ${ctrDeltaPct}% | Avg Position Improvement: ${positionImprovement} positions. Synthetic control adjusted lift: ${gscFeedback.syntheticControlAdjustedLift}%. (Provenance: GOOGLE_SEARCH_CONSOLE. Internal code hygiene delta +${internalHygieneDelta} pts logged for diagnostic reference only; never used as ranking proof).`
+        : `Impact measurement recorded: Zero external ranking improvement claimed. Google Search Console has insufficient empirical facts for the observation window. (Internal code hygiene delta: +${internalHygieneDelta} pts is strictly diagnostic and rejected as proof of ranking).`,
       data: {
-        rankingProofSource: 'GOOGLE_SEARCH_CONSOLE_AND_SERP_TRACKING',
+        rankingProofSource: gscFeedback.rankingVerificationSource,
+        provenance: 'GOOGLE_SEARCH_CONSOLE',
+        hasEmpiricalProof: gscFeedback.hasSufficientData,
         internalScoreUsedAsProof: false,
         clicksLiftPct,
         impressionsLiftPct,
@@ -499,18 +532,20 @@ export class SeoExperimentLifecycleEngine {
 
     // =========================================================================
     // STAGE 6: LEARNING UPDATE
+    // Only empirically proven data updates Bayesian confidence or effectiveness rate.
     // =========================================================================
     const { profile, learningRecord } = await LearningLoopEngine.recordActionOutcome({
       ruleKey: `RULE_${task.actionType}`,
       websiteId,
       actionExecutionId: executionRecord.id,
       actionType: task.actionType,
+      provenanceSource: 'GOOGLE_SEARCH_CONSOLE',
       outcome: gscFeedback.isStatisticallySignificant ? 'SUCCESS' : 'FAILED',
-      metricDeltaPct: gscFeedback.syntheticControlAdjustedLift,
+      metricDeltaPct: gscFeedback.syntheticControlAdjustedLift ?? 0,
       confidence: task.confidenceScore,
       isPostObservationPerformance: true,
       actualOutcome: {
-        passed: true,
+        passed: gscFeedback.hasSufficientData && gscFeedback.isStatisticallySignificant,
         verifiedChangesCount: observedChanges.length,
         httpStatus: postDom.httpStatus,
         gscMetrics: gscFeedback.postInterventionWindow.metrics,
@@ -518,16 +553,21 @@ export class SeoExperimentLifecycleEngine {
       },
     });
 
+    const provenanceBlocked = !gscFeedback.hasSufficientData;
+
     stages.push({
       stage: 'STAGE_6_LEARNING_UPDATE',
       status: 'COMPLETED',
       timestamp: new Date().toISOString(),
-      summary: `Learning engine calibrated: Updated rule ${profile.ruleKey} (Observed trials: ${profile.observedPerformanceTrials}, Calibrated confidence: ${profile.calibratedConfidence}, Performance success rate: ${(profile.performanceSuccessRate * 100).toFixed(1)}%).`,
+      summary: provenanceBlocked
+        ? `Learning update audited: Rule ${profile.ruleKey} recorded trial under INSUFFICIENT_TELEMETRY. Bayesian confidence and effectiveness rates preserved unchanged to prevent synthetic evidence contamination.`
+        : `Learning engine calibrated: Updated rule ${profile.ruleKey} from empirical GSC facts (Observed trials: ${profile.observedPerformanceTrials}, Calibrated confidence: ${profile.calibratedConfidence}, Performance success rate: ${(profile.performanceSuccessRate * 100).toFixed(1)}%).`,
       data: {
         learningRecordId: learningRecord.id,
         calibratedConfidence: profile.calibratedConfidence,
         performanceSuccessRate: profile.performanceSuccessRate,
         observedPerformanceTrials: profile.observedPerformanceTrials,
+        provenanceBlocked,
       },
     });
 
@@ -554,8 +594,10 @@ export class SeoExperimentLifecycleEngine {
       },
       gscFeedback,
       impactMeasurement: {
-        rankingProofSource: 'GOOGLE_SEARCH_CONSOLE_AND_SERP_TRACKING',
+        rankingProofSource: gscFeedback.rankingVerificationSource,
+        provenance: 'GOOGLE_SEARCH_CONSOLE',
         internalScoreUsedAsProof: false,
+        hasEmpiricalProof: gscFeedback.hasSufficientData,
         clicksLiftPct,
         impressionsLiftPct,
         ctrDeltaPct,
@@ -572,6 +614,7 @@ export class SeoExperimentLifecycleEngine {
         ruleCalibratedConfidence: profile.calibratedConfidence,
         ruleEffectivenessRate: profile.effectivenessRate,
         causalEvidenceConfirmed: gscFeedback.isStatisticallySignificant,
+        provenanceBlocked,
       },
     };
   }

@@ -281,6 +281,26 @@ router.post('/report', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/seo/simulation/sandbox - Explicit Simulation Mode (Sample data only; strictly barred from learning updates)
+router.post('/simulation/sandbox', async (req: Request, res: Response) => {
+  try {
+    const { targetUrl = 'https://ahaninja.com', actionType = 'SET_META_TAGS', targetKeyword = 'قیمت میلگرد' } = req.body;
+    const { SimulationModeService } = await import('../services/simulation/simulationModeService');
+    const simulation = SimulationModeService.generateSimulatedTelemetry({
+      targetUrl,
+      actionType,
+      targetKeyword,
+    });
+    return res.json({
+      status: 'SIMULATION_COMPLETED',
+      provenanceNotice: 'SIMULATION: This data is generated for dry-run modeling. It cannot update learning loop weights or be cited as empirical SEO success.',
+      simulation,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Simulation failed', message: err.message });
+  }
+});
+
 // POST /api/seo/plan/:websiteId - Generate Safe Execution Plan
 router.post('/plan/:websiteId', requireWebsiteAccess('EDITOR'), async (req: Request, res: Response) => {
   try {

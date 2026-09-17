@@ -63,7 +63,16 @@ router.get('/rules', requireWebsiteAccess('VIEWER'), async (req: Request, res: R
 // GET /api/decision/learning-stats
 router.get('/learning-stats', requireWebsiteAccess('VIEWER'), async (req: Request, res: Response) => {
   const profiles = LearningLoopEngine.getAllProfiles();
-  return res.json({ profiles });
+  const history = LearningLoopEngine.getLearningHistory();
+  return res.json({
+    profiles,
+    historyCount: history.length,
+    recentAudits: history.slice(-20),
+    dataProvenanceRules: {
+      allowedSourcesForBayesianCalibration: ['GOOGLE_SEARCH_CONSOLE', 'GOOGLE_ANALYTICS', 'SERP_PROVIDER'],
+      rejectedSourcesForRankingEvidence: ['INTERNAL_DIAGNOSTIC', 'SIMULATION'],
+    },
+  });
 });
 
 export default router;
