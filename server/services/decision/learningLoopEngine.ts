@@ -128,6 +128,7 @@ export class LearningLoopEngine {
       expectedGainPct?: number;
       targetMetric?: string;
     };
+    hasStatisticalEvidence?: boolean;
     expectedOutcome?: Record<string, any>;
     actualOutcome?: Record<string, any>;
   }): Promise<{ profile: RuleLearningProfile; learningRecord: PersistentLearningRecord }> {
@@ -143,68 +144,11 @@ export class LearningLoopEngine {
       causalLift,
       syntheticControlDelta,
       confidence,
+      hasStatisticalEvidence = false,
       prediction: inputPrediction,
       expectedOutcome: inputExpectedOutcome,
       actualOutcome: inputActualOutcome,
     } = params;
-
-    // STRICT PROVENANCE ENFORCEMENT:
-    // Simulation results and internal diagnostics must NEVER update Bayesian confidence or rule effectiveness!
-    if (provenanceSource) {
-      if (provenanceSource === 'SIMULATION' || provenanceSource === 'INTERNAL_DIAGNOSTIC') {
-        const profile = this.getRuleProfile(ruleKey);
-        // Create an auditable record without touching profile metrics, effectiveness, or Bayesian confidence
-        const simulatedRecord: PersistentLearningRecord = {
-          id: `sim-lrn-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          ruleKey,
-          websiteId,
-          actionExecutionId,
-          evaluationStage: isPostObservationPerformance
-            ? 'STAGE_6_POST_OBSERVATION_PERFORMANCE'
-            : 'STAGE_3_VERIFIED_EXECUTION',
-          executionSuccess: outcome === 'SUCCESS',
-          performanceSuccess: false, // Never mark performance success from simulation/diagnostic
-          provenanceSource,
-          prediction: {
-            hypothesis: inputPrediction?.hypothesis || `[PROVENANCE_${provenanceSource}] Simulation/Diagnostic run`,
-            expectedGainPct: 0,
-            targetMetric: 'NONE',
-            estimationSource: 'EMPIRICAL_PRIOR',
-          },
-          confidence: profile.calibratedConfidence, // Unchanged
-          confidenceSource: `BLOCKED_PROVENANCE: Metrics originated from ${provenanceSource}. Bayesian confidence unchanged.`,
-          action: {
-            actionType,
-            ruleKey,
-            payloadSummary: `Simulated or Diagnostic execution on ${websiteId}`,
-          },
-          expectedOutcome: inputExpectedOutcome || {},
-          actualOutcome: {
-            ...(inputActualOutcome || {}),
-            provenanceBlocked: true,
-            reason: `${provenanceSource} cannot update learning engine`,
-          },
-          learningDelta: {
-            metricDeltaPct: 0,
-            variancePct: 0,
-            isPositiveGain: false,
-            notes: `PROVENANCE_GUARD: Prevented ${provenanceSource} from altering Bayesian confidence or effectiveness rates.`,
-          },
-          ruleEffectiveness: {
-            totalExecutions: profile.totalExecutions,
-            successRate: profile.effectivenessRate,
-            rollbackRate: Number((profile.rolledBackExecutions / Math.max(1, profile.totalExecutions)).toFixed(3)),
-            calibratedConfidence: profile.calibratedConfidence,
-            observedPerformanceTrials: profile.observedPerformanceTrials,
-            performanceSuccessRate: profile.performanceSuccessRate,
-            isConfidenceScaleUpAllowed: profile.isConfidenceScaleUpAllowed,
-          },
-          recordedAt: new Date(),
-        };
-
-        return { profile, learningRecord: simulatedRecord };
-      }
-    }
 
     // 1. Empirical Expected Gain Resolution
     const empiricalEstimation = this.computeEmpiricalExpectedGain(ruleKey, websiteId);
@@ -257,13 +201,27 @@ export class LearningLoopEngine {
     // Execution rate tracks technical deployment reliability
     profile.effectivenessRate = Number((profile.successfulExecutions / profile.totalExecutions).toFixed(3));
 
+    // REQUIREMENT 3 ENFORCEMENT:
+    // LearningLoopEngine may update search performance & Bayesian confidence ONLY if:
+    // 1. Provenance is external (GOOGLE_SEARCH_CONSOLE, GOOGLE_ANALYTICS, SERP_PROVIDER)
+    // 2. Observation window completed (isPostObservationPerformance === true)
+    // 3. Statistical evidence exists (hasStatisticalEvidence === true)
+    const isExternalProvenance =
+      provenanceSource === 'GOOGLE_SEARCH_CONSOLE' ||
+      provenanceSource === 'GOOGLE_ANALYTICS' ||
+      provenanceSource === 'SERP_PROVIDER';
+
+    const observationWindowCompleted = Boolean(isPostObservationPerformance);
+    const statisticalEvidenceExists = Boolean(hasStatisticalEvidence);
+    const isPerformanceUpdateAllowed = isExternalProvenance && observationWindowCompleted && statisticalEvidenceExists;
+
     // 3. Post-Observation Performance Evaluation vs Technical Execution Success
     const evaluationStage: 'STAGE_3_VERIFIED_EXECUTION' | 'STAGE_6_POST_OBSERVATION_PERFORMANCE' =
       isPostObservationPerformance ? 'STAGE_6_POST_OBSERVATION_PERFORMANCE' : 'STAGE_3_VERIFIED_EXECUTION';
 
     let performanceSuccess: boolean | 'PENDING_OBSERVATION_WINDOW' = 'PENDING_OBSERVATION_WINDOW';
 
-    if (isPostObservationPerformance) {
+    if (isPostObservationPerformance && isPerformanceUpdateAllowed) {
       profile.observedPerformanceTrials += 1;
       const isPositiveLift =
         (metricDeltaPct !== undefined && metricDeltaPct > 0) || (causalLift !== undefined && causalLift > 0);
@@ -291,30 +249,27 @@ export class LearningLoopEngine {
 
       const successfulTrials = deltas.filter((d) => d > 0).length;
       profile.performanceSuccessRate = Number((successfulTrials / profile.observedPerformanceTrials).toFixed(3));
-    }
 
-    // SAFETY RULE ENFORCEMENT:
-    // Do NOT increase rule confidence from a single experiment.
-    // Require:
-    // 1. Multiple successful observations (>= 3)
-    // 2. Consistent results (variance <= 0.35)
-    // 3. Causal evidence
-    const hasMultipleObservations = profile.observedPerformanceTrials >= 3;
-    const hasConsistentResults = profile.performanceVariance <= 0.35;
-    const hasCausalEvidence = profile.hasCausalEvidence;
+      // SAFETY RULE ENFORCEMENT:
+      // Do NOT increase rule confidence from a single experiment.
+      // Require:
+      // 1. Multiple successful observations (>= 3)
+      // 2. Consistent results (variance <= 0.35)
+      // 3. Causal evidence
+      const hasMultipleObservations = profile.observedPerformanceTrials >= 3;
+      const hasConsistentResults = profile.performanceVariance <= 0.35;
+      const hasCausalEvidence = profile.hasCausalEvidence;
 
-    profile.isConfidenceScaleUpAllowed = hasMultipleObservations && hasConsistentResults && hasCausalEvidence;
+      profile.isConfidenceScaleUpAllowed = hasMultipleObservations && hasConsistentResults && hasCausalEvidence;
 
-    if (profile.isConfidenceScaleUpAllowed) {
-      // Scale up confidence smoothly based on empirical success rate and sample size
-      const sampleWeight = Math.min(1.0, profile.observedPerformanceTrials / 10);
-      const scaled = 0.50 * (1 - sampleWeight) + profile.performanceSuccessRate * 0.90 * sampleWeight;
-      profile.calibratedConfidence = Number(Math.min(0.96, Math.max(0.50, scaled)).toFixed(3));
-    } else {
-      // Confidence CANNOT increase above baseline prior (0.50) without multiple observations + consistency + causal evidence.
-      // If there are failures or rollbacks, confidence scales DOWN safely.
-      const failurePenalty = (profile.failedExecutions + profile.rolledBackExecutions * 2) * 0.08;
-      profile.calibratedConfidence = Number(Math.max(0.20, 0.50 - failurePenalty).toFixed(3));
+      if (profile.isConfidenceScaleUpAllowed) {
+        // Scale up confidence smoothly based on empirical success rate and sample size
+        const sampleWeight = Math.min(1.0, profile.observedPerformanceTrials / 10);
+        const scaled = 0.50 * (1 - sampleWeight) + profile.performanceSuccessRate * 0.90 * sampleWeight;
+        profile.calibratedConfidence = Number(Math.min(0.96, Math.max(0.50, scaled)).toFixed(3));
+      }
+    } else if (isPostObservationPerformance && !isPerformanceUpdateAllowed) {
+      performanceSuccess = false;
     }
 
     profile.lastCalibratedAt = new Date();

@@ -539,11 +539,12 @@ export class SeoExperimentLifecycleEngine {
       websiteId,
       actionExecutionId: executionRecord.id,
       actionType: task.actionType,
-      provenanceSource: 'GOOGLE_SEARCH_CONSOLE',
+      provenanceSource: gscFeedback.hasSufficientData ? 'GOOGLE_SEARCH_CONSOLE' : ('INSUFFICIENT_TELEMETRY' as any),
       outcome: gscFeedback.isStatisticallySignificant ? 'SUCCESS' : 'FAILED',
       metricDeltaPct: gscFeedback.syntheticControlAdjustedLift ?? 0,
       confidence: task.confidenceScore,
       isPostObservationPerformance: true,
+      hasStatisticalEvidence: Boolean(gscFeedback.hasSufficientData && gscFeedback.isStatisticallySignificant),
       actualOutcome: {
         passed: gscFeedback.hasSufficientData && gscFeedback.isStatisticallySignificant,
         verifiedChangesCount: observedChanges.length,

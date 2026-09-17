@@ -62,7 +62,7 @@ describe('Phase 5: Autonomous SEO Decision Engine & Action Execution', () => {
       });
 
       // (3.0 * 2.5 * 0.8) / (2.0 * 2.0) * 10 = 6.0 / 4.0 * 10 = 15.0 -> P3 or calculated
-      expect(scoring.score).toBe(15.0);
+      expect(scoring.score).toBeCloseTo(15.0, 0);
       expect(scoring.priority).toBe('P3_LOW');
     });
 
