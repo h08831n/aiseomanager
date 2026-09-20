@@ -82,17 +82,58 @@ This application is built on a **portable, provider-agnostic architecture**. It 
 
 ## 2. Environment Variables Specification
 
-All configuration is environment-driven. No hostnames or provider URLs are hardcoded in application logic:
+All configuration is environment-driven. The single source of truth configuration schema is defined in `server/config/configSchema.ts`.
 
-| Variable | Requirement | Description | Example (Local vs Cloud) |
+In **Production Mode** (`APP_MODE=PRODUCTION` or `NODE_ENV=production`), the following 5 credentials are **strictly required**:
+1. `DATABASE_URL`
+2. `DIRECT_URL`
+3. `ENCRYPTION_MASTER_KEY`
+4. `GOOGLE_CLIENT_ID`
+5. `GOOGLE_CLIENT_SECRET`
+
+| Variable | Requirement (Production) | Description | Validation Rule |
 | :--- | :--- | :--- | :--- |
-| `DATABASE_URL` | **Required** | PostgreSQL connection string | `postgresql://postgres:pwd@localhost:5432/ai_seo_manager` or `postgresql://user:pwd@db.host.com:5432/seo?sslmode=require` |
-| `DIRECT_URL` | Optional | Direct unpooled DB connection for migrations (e.g. Supabase/Neon) | `postgresql://user:pwd@db.host.com:5432/seo?sslmode=require` |
-| `REDIS_URL` | Optional | Redis connection URI for queue management | `redis://localhost:6379` or `rediss://default:pwd@redis.host.com:6379` |
-| `ENCRYPTION_MASTER_KEY` | **Required** | 32-byte (64 hex characters) AES-256-GCM encryption key | `openssl rand -hex 32` |
-| `GEMINI_API_KEY` | Optional | Google Gemini API key for AI reasoning | Configured in environment or AI Studio Secrets |
+| `DATABASE_URL` | **Required** | Pooled PostgreSQL connection string | Starts with `postgresql://` or `postgres://`, no placeholders |
+| `DIRECT_URL` | **Required** | Direct unpooled DB connection for Prisma migrations | Starts with `postgresql://` or `postgres://`, no placeholders |
+| `ENCRYPTION_MASTER_KEY` | **Required** | 32-byte AES-256-GCM master encryption key | 64 hex characters or >= 32 UTF-8 bytes |
+| `GOOGLE_CLIENT_ID` | **Required** | Google Cloud OAuth 2.0 Web Client ID | Valid Google client ID ending in `.apps.googleusercontent.com` |
+| `GOOGLE_CLIENT_SECRET` | **Required** | Google Cloud OAuth 2.0 Client Secret | Valid client secret (>= 16 chars) |
+| `GOOGLE_OAUTH_REDIRECT_URI` | Optional | Authorized OAuth redirect callback URL | Valid URL, must be HTTPS in production |
+| `AUTONOMOUS_EXECUTION_ENABLED` | Optional (Safety Default) | Safety killswitch for autonomous mutations | Strictly `'true'` or `'false'` (defaults to `'false'`) |
+| `REDIS_URL` | Optional in dev, Required for worker | Redis connection URI for BullMQ queues | Starts with `redis://` or `rediss://` |
+| `GEMINI_API_KEY` | Optional | Google Gemini API key for AI reasoning | Non-empty string, no placeholders |
 | `PORT` | Optional | Port for the HTTP API server | Defaults to `3000` |
-| `NODE_ENV` | Optional | `development` or `production` | `production` |
+| `APP_MODE` | Optional | Runtime profile | `PRODUCTION`, `DEVELOPMENT`, `DEMO`, or `TEST` |
+
+---
+
+## 2.1 Startup Diagnostic Command
+
+Run the diagnostic command at any time to verify system connectivity and configuration readiness:
+```bash
+npm run doctor
+```
+
+Outputs exact subsystem statuses:
+```text
+Database:
+READY / ERROR
+
+Prisma:
+READY / ERROR
+
+Redis:
+READY / ERROR
+
+Google OAuth:
+READY / ERROR
+
+Encryption:
+READY / ERROR
+
+Autonomous execution:
+ENABLED / DISABLED
+```
 
 ---
 

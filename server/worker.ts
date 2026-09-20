@@ -58,13 +58,18 @@ async function startWorkerRuntime() {
     `[Worker Process] Autonomy Status: ${autonomyActive ? 'ENABLED (AUTONOMOUS_EXECUTION_ENABLED=true)' : 'DISABLED BY DEFAULT (Safe Mode)'}`
   );
 
-  // 5. Initialize BullMQ Consumers
-  CrawlerQueueConsumer.initialize();
-  SyncQueueConsumer.start();
-  const serpQueueConsumer = new SerpQueueConsumer();
-  serpQueueConsumer.start();
-  ActionQueueConsumer.start();
-  AttributionQueueConsumer.start();
+  // 5. Initialize BullMQ Consumers (if Redis is configured)
+  let serpQueueConsumer: SerpQueueConsumer | null = null;
+  if (process.env.REDIS_URL) {
+    CrawlerQueueConsumer.initialize();
+    SyncQueueConsumer.start();
+    serpQueueConsumer = new SerpQueueConsumer();
+    serpQueueConsumer.start();
+    ActionQueueConsumer.start();
+    AttributionQueueConsumer.start();
+  } else {
+    console.log('[Worker Process] REDIS_URL not configured. Skipping BullMQ queue consumers in development mode.');
+  }
 
   // 6. Start Transactional Outbox Polling
   OutboxDispatcher.startPolling(2000);
@@ -79,11 +84,11 @@ async function startWorkerRuntime() {
 AUTONOMOUS SEO WORKER RUNTIME TOPOLOGY
 ========================================
 Database Check ......... ${dbReadiness.status}
-CrawlerConsumer ........ ENABLED
-SyncConsumer ........... ENABLED
-SerpConsumer ........... ENABLED
-ActionConsumer ......... ENABLED
-AttributionConsumer .... ENABLED
+CrawlerConsumer ........ ${process.env.REDIS_URL ? 'ENABLED' : 'DISABLED (No Redis)'}
+SyncConsumer ........... ${process.env.REDIS_URL ? 'ENABLED' : 'DISABLED (No Redis)'}
+SerpConsumer ........... ${process.env.REDIS_URL ? 'ENABLED' : 'DISABLED (No Redis)'}
+ActionConsumer ......... ${process.env.REDIS_URL ? 'ENABLED' : 'DISABLED (No Redis)'}
+AttributionConsumer .... ${process.env.REDIS_URL ? 'ENABLED' : 'DISABLED (No Redis)'}
 OutboxDispatcher ....... ENABLED
 Watchdog ............... ENABLED
 Autonomy Mode .......... ${autonomyActive ? 'ACTIVE' : 'DISABLED_BY_DEFAULT'}
@@ -102,11 +107,13 @@ Autonomy Mode .......... ${autonomyActive ? 'ACTIVE' : 'DISABLED_BY_DEFAULT'}
     OutboxDispatcher.stopPolling();
     try {
       await watchdogWorkerRuntime.stop();
-      await serpQueueConsumer.stop();
-      await ActionQueueConsumer.stop();
-      await AttributionQueueConsumer.stop();
-      await CrawlerQueueConsumer.shutdown();
-      await SyncQueueConsumer.stop();
+      if (serpQueueConsumer) await serpQueueConsumer.stop();
+      if (process.env.REDIS_URL) {
+        await ActionQueueConsumer.stop();
+        await AttributionQueueConsumer.stop();
+        await CrawlerQueueConsumer.shutdown();
+        await SyncQueueConsumer.stop();
+      }
       await workerRuntime.stop();
       console.log('[Worker Process] Worker shutdown completed.');
       process.exit(0);

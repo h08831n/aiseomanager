@@ -121,7 +121,7 @@ export class RuleWeightResolver {
         isFallback: true,
       };
     } catch (error: any) {
-      if (isProductionMode()) {
+      if (isProductionMode() || process.env.NODE_ENV === 'production') {
         throw new Error(
           `POLICY_STATE_UNAVAILABLE: Failed to resolve Bayesian rule weight for '${ruleKey}' on site '${websiteId}': ${error.message}`
         );

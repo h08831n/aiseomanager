@@ -131,7 +131,7 @@ export class RuleWeightResolver {
         }
       }
     } catch (err: any) {
-      if (isProductionMode()) {
+      if (isProductionMode() || process.env.NODE_ENV === 'production') {
         throw new Error(`POLICY_STATE_UNAVAILABLE: Failed to resolve Bayesian rule weight from database in production: ${err.message}`);
       }
       // If database is temporarily unavailable in non-production, fall back to default

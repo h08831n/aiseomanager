@@ -1,4 +1,17 @@
 import { isProductionMode } from './runtimeMode';
+import {
+  CONFIG_SCHEMA,
+  REQUIRED_PRODUCTION_CREDENTIALS,
+  ConfigVariableSchema,
+  getConfigSchema,
+} from './configSchema';
+
+export {
+  CONFIG_SCHEMA,
+  REQUIRED_PRODUCTION_CREDENTIALS,
+  getConfigSchema,
+};
+export type { ConfigVariableSchema };
 
 export interface EnvValidationIssue {
   name: string;
