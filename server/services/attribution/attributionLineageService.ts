@@ -185,7 +185,7 @@ export class AttributionLineageService {
             }),
             severity: 'INFO',
             source: 'ACTION_ORCHESTRATOR',
-            provenance: 'MEASURED_PROVIDER',
+            provenance: 'INTERNAL_DIAGNOSTIC',
             eventFingerprint,
             detectedAt: execution.verifiedAt || execution.executedAt || new Date(),
           },

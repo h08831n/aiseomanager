@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { GoogleOAuthClient } from '../server/services/integrations/providers/googleOAuthClient';
 import { GoogleSearchConsoleProvider } from '../server/services/integrations/providers/googleSearchConsoleProvider';
 import { GoogleAnalytics4Provider } from '../server/services/integrations/providers/googleAnalytics4Provider';
+import { TelemetryReadinessGate } from '../server/services/integrations/telemetryReadinessGate';
 
 describe('Phase 3: Opt-in Live Google OAuth & Provider Verification', () => {
   const isLiveConfigured =
@@ -9,12 +10,13 @@ describe('Phase 3: Opt-in Live Google OAuth & Provider Verification', () => {
     Boolean(process.env.GOOGLE_CLIENT_SECRET) &&
     Boolean(process.env.GOOGLE_TEST_REFRESH_TOKEN);
 
-  it('verifies live Google API credentials if provisioned (skips safely when deferred)', async () => {
+  it('verifies live Google API credentials if provisioned or asserts BLOCKED_EXTERNAL_CREDENTIALS', async () => {
     if (!isLiveConfigured) {
-      console.log(
-        '[OPT-IN LIVE TEST] Live Google credentials not present in this runtime. Status: BLOCKED_EXTERNAL_CREDENTIALS. Skipping live HTTP call cleanly.'
-      );
-      expect(true).toBe(true);
+      const report = await TelemetryReadinessGate.evaluate({ websiteUrl: 'https://ahaninja.com' });
+      expect(report.readinessState).toBe('BLOCKED_EXTERNAL_CREDENTIALS');
+      expect(report.isReadyForExperiment).toBe(false);
+      expect(report.blockingReasons.length).toBeGreaterThan(0);
+      expect(report.blockingReasons[0]).toMatch(/not registered|credentials|external telemetry/i);
       return;
     }
 

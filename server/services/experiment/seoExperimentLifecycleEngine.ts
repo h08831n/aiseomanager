@@ -200,7 +200,7 @@ export class SeoExperimentLifecycleEngine {
       organicSessions: hasRealGa4 ? ga4Facts.reduce((s, r) => s + r.sessions, 0) : null,
       conversions: hasRealGa4 ? ga4Facts.reduce((s, r) => s + r.keyEvents, 0) : null,
       revenue: hasRealGa4 ? ga4Facts.reduce((s, r) => s + r.totalRevenue, 0) : null,
-      provenance: (hasRealGa4 ? 'MEASURED_PROVIDER' : 'INSUFFICIENT_TELEMETRY') as MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY',
+      provenance: (hasRealGa4 ? 'GOOGLE_ANALYTICS' : 'INSUFFICIENT_TELEMETRY') as MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY',
     };
 
     const hasRealSerp = serpRankFacts.length > 0;

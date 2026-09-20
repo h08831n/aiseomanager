@@ -195,7 +195,7 @@ export class GoogleAnalytics4Provider implements AnalyticsProvider {
       timeZone: metadata.timeZone || 'UTC',
       currencyCode: metadata.currencyCode || 'USD',
       retrievedAt: new Date().toISOString(),
-      provenance: 'MEASURED_PROVIDER',
+      provenance: 'GOOGLE_ANALYTICS',
       samplingMetadata: metadata.samplingMetadatas,
       subjectToThresholding: metadata.subjectToThresholding || false,
       dataLossFromOtherRow: metadata.dataLossFromOtherRow || false,

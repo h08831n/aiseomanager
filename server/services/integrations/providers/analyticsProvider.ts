@@ -53,7 +53,7 @@ export interface Ga4BatchResult {
   timeZone: string;
   currencyCode: string;
   retrievedAt: string;
-  provenance: 'MEASURED_PROVIDER';
+  provenance: 'GOOGLE_ANALYTICS';
   samplingMetadata?: any;
   subjectToThresholding?: boolean;
   dataLossFromOtherRow?: boolean;

@@ -199,7 +199,7 @@ export class GoogleSearchConsoleProvider implements SearchConsoleProvider {
       hasMore,
       nextStartRow,
       retrievedAt: new Date().toISOString(),
-      provenance: 'MEASURED_PROVIDER',
+      provenance: 'GOOGLE_SEARCH_CONSOLE',
     };
   }
 

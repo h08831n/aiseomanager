@@ -48,7 +48,7 @@ describe('Phase 3: GoogleAnalytics4Provider Test Suite', () => {
 
     expect(result.rows).toHaveLength(1);
     expect(result.rowCount).toBe(1);
-    expect(result.provenance).toBe('MEASURED_PROVIDER');
+    expect(result.provenance).toBe('GOOGLE_ANALYTICS');
 
     const row = result.rows[0];
     expect(row.dimensionValues[0]).toBe('20260810');

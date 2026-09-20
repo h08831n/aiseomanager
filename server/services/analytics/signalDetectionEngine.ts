@@ -1,8 +1,9 @@
 import { prisma } from '../../db/prisma';
 import { PeriodComparisonEngine } from './periodComparisonEngine';
+import { MetricProvenanceSource } from '../provenance/provenanceTypes';
 
 export type SignalSource = 'GOOGLE_SEARCH_CONSOLE' | 'GOOGLE_ANALYTICS_4' | 'CRAWLER';
-export type SignalProvenance = 'MEASURED_PROVIDER' | 'CALCULATED' | 'USER_PROVIDED' | 'AI_INFERENCE' | 'DATA_UNAVAILABLE';
+export type SignalProvenance = MetricProvenanceSource | 'MEASURED_PROVIDER' | 'CALCULATED' | 'USER_PROVIDED' | 'AI_INFERENCE' | 'DATA_UNAVAILABLE';
 
 export interface DetectedSignal {
   websiteId: string;
@@ -222,7 +223,7 @@ export class SignalDetectionEngine {
           eventType: 'STRIKING_DISTANCE_OPPORTUNITY',
           severity: 'MEDIUM',
           source: 'GOOGLE_SEARCH_CONSOLE',
-          provenance: 'MEASURED_PROVIDER',
+          provenance: 'GOOGLE_SEARCH_CONSOLE',
           details: {
             query: kw.query,
             position: kw.position,
@@ -284,7 +285,7 @@ export class SignalDetectionEngine {
         eventType: 'ORPHAN_PAGE_RECEIVING_TRAFFIC',
         severity: 'HIGH',
         source: 'GOOGLE_SEARCH_CONSOLE',
-        provenance: 'MEASURED_PROVIDER',
+        provenance: 'GOOGLE_SEARCH_CONSOLE',
         details: {
           url: orphan.normalizedUrl,
           pathname: orphan.pathname,

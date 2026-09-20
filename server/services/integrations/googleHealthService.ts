@@ -13,11 +13,21 @@ export interface GoogleIntegrationHealthResponse {
       status: 'CONNECTED' | 'DISCONNECTED';
       activeConnectionsCount: number;
       accountEmail?: string;
+      isLiveVerified: boolean;
+      liveStatus: 'CONFIGURED' | 'CONNECTED' | 'LIVE_VERIFIED' | 'BLOCKED_EXTERNAL_CREDENTIALS' | 'INSUFFICIENT_TELEMETRY';
+      telemetryFactCount?: number;
+      latestFactDate?: string;
+      lastSyncAt?: string;
     };
     ga4: {
       status: 'CONNECTED' | 'DISCONNECTED';
       activeConnectionsCount: number;
       propertyId?: string;
+      isLiveVerified: boolean;
+      liveStatus: 'CONFIGURED' | 'CONNECTED' | 'LIVE_VERIFIED' | 'BLOCKED_EXTERNAL_CREDENTIALS' | 'INSUFFICIENT_TELEMETRY' | 'NOT_CONFIGURED';
+      telemetryFactCount?: number;
+      latestFactDate?: string;
+      lastSyncAt?: string;
     };
     database: {
       status: 'READY' | 'ERROR';
@@ -71,10 +81,59 @@ export class GoogleHealthService {
       gscStatus = 'DISCONNECTED';
     }
 
+    let gscIsLiveVerified = false;
+    let gscLiveStatus: 'CONFIGURED' | 'CONNECTED' | 'LIVE_VERIFIED' | 'BLOCKED_EXTERNAL_CREDENTIALS' | 'INSUFFICIENT_TELEMETRY' =
+      gscCount > 0 ? 'CONNECTED' : 'BLOCKED_EXTERNAL_CREDENTIALS';
+    let gscFactCount: number | undefined;
+    let gscLatestFactDate: string | undefined;
+    let gscLastSyncAt: string | undefined;
+
+    if (options.websiteId && gscStatus === 'CONNECTED') {
+      try {
+        const lastSync = await prisma.integrationSyncRun.findFirst({
+          where: { websiteId: options.websiteId, provider: 'GSC', status: 'COMPLETED' },
+          orderBy: { completedAt: 'desc' },
+        });
+        if (lastSync?.completedAt) {
+          gscLastSyncAt = lastSync.completedAt.toISOString();
+        }
+
+        const count = await prisma.gscSearchAnalyticsFact.count({
+          where: { websiteId: options.websiteId, provenance: 'GOOGLE_SEARCH_CONSOLE' },
+        });
+        gscFactCount = count;
+
+        const latestFact = await prisma.gscSearchAnalyticsFact.findFirst({
+          where: { websiteId: options.websiteId, provenance: 'GOOGLE_SEARCH_CONSOLE' },
+          orderBy: { date: 'desc' },
+        });
+
+        if (latestFact?.date) {
+          gscLatestFactDate = latestFact.date.toISOString().split('T')[0];
+          const ageDays = Math.floor((Date.now() - latestFact.date.getTime()) / (1000 * 60 * 60 * 24));
+          if (lastSync && count > 0 && ageDays <= 14) {
+            gscIsLiveVerified = true;
+            gscLiveStatus = 'LIVE_VERIFIED';
+          } else {
+            gscLiveStatus = 'INSUFFICIENT_TELEMETRY';
+          }
+        } else {
+          gscLiveStatus = 'INSUFFICIENT_TELEMETRY';
+        }
+      } catch {
+        gscLiveStatus = 'INSUFFICIENT_TELEMETRY';
+      }
+    }
+
     // 2. Evaluate GA4 Integration
     let ga4Status: 'CONNECTED' | 'DISCONNECTED' = 'DISCONNECTED';
     let ga4Count = 0;
     let ga4PropertyId: string | undefined;
+    let ga4IsLiveVerified = false;
+    let ga4LiveStatus: 'CONFIGURED' | 'CONNECTED' | 'LIVE_VERIFIED' | 'BLOCKED_EXTERNAL_CREDENTIALS' | 'INSUFFICIENT_TELEMETRY' | 'NOT_CONFIGURED' = 'NOT_CONFIGURED';
+    let ga4FactCount: number | undefined;
+    let ga4LatestFactDate: string | undefined;
+    let ga4LastSyncAt: string | undefined;
 
     try {
       const ga4Where: any = {
@@ -94,6 +153,7 @@ export class GoogleHealthService {
       if (ga4Integrations.length > 0) {
         ga4Status = 'CONNECTED';
         ga4Count = ga4Integrations.length;
+        ga4LiveStatus = 'CONNECTED';
         const first = ga4Integrations[0];
 
         if (options.websiteId) {
@@ -104,7 +164,39 @@ export class GoogleHealthService {
             if (binding?.providerPropertyId) {
               ga4PropertyId = binding.providerPropertyId;
             }
-          } catch {}
+
+            const lastGa4Sync = await prisma.integrationSyncRun.findFirst({
+              where: { websiteId: options.websiteId, provider: 'GA4', status: 'COMPLETED' },
+              orderBy: { completedAt: 'desc' },
+            });
+            if (lastGa4Sync?.completedAt) {
+              ga4LastSyncAt = lastGa4Sync.completedAt.toISOString();
+            }
+
+            const count = await prisma.ga4LandingPageDaily.count({
+              where: { websiteId: options.websiteId, provenance: 'GOOGLE_ANALYTICS' },
+            });
+            ga4FactCount = count;
+
+            const latestGa4Fact = await prisma.ga4LandingPageDaily.findFirst({
+              where: { websiteId: options.websiteId, provenance: 'GOOGLE_ANALYTICS' },
+              orderBy: { date: 'desc' },
+            });
+
+            if (latestGa4Fact?.date) {
+              ga4LatestFactDate = latestGa4Fact.date.toISOString().split('T')[0];
+              if (lastGa4Sync && count > 0) {
+                ga4IsLiveVerified = true;
+                ga4LiveStatus = 'LIVE_VERIFIED';
+              } else {
+                ga4LiveStatus = 'INSUFFICIENT_TELEMETRY';
+              }
+            } else {
+              ga4LiveStatus = 'INSUFFICIENT_TELEMETRY';
+            }
+          } catch {
+            ga4LiveStatus = 'INSUFFICIENT_TELEMETRY';
+          }
         }
 
         if (!ga4PropertyId) {
@@ -113,6 +205,7 @@ export class GoogleHealthService {
       }
     } catch {
       ga4Status = 'DISCONNECTED';
+      ga4LiveStatus = 'NOT_CONFIGURED';
     }
 
     // 3. Evaluate Database Readiness
@@ -169,11 +262,21 @@ export class GoogleHealthService {
           status: gscStatus,
           activeConnectionsCount: gscCount,
           accountEmail: gscAccountEmail,
+          isLiveVerified: gscIsLiveVerified,
+          liveStatus: gscLiveStatus,
+          telemetryFactCount: gscFactCount,
+          latestFactDate: gscLatestFactDate,
+          lastSyncAt: gscLastSyncAt,
         },
         ga4: {
           status: ga4Status,
           activeConnectionsCount: ga4Count,
           propertyId: ga4PropertyId,
+          isLiveVerified: ga4IsLiveVerified,
+          liveStatus: ga4LiveStatus,
+          telemetryFactCount: ga4FactCount,
+          latestFactDate: ga4LatestFactDate,
+          lastSyncAt: ga4LastSyncAt,
         },
         database: {
           status: dbStatus,

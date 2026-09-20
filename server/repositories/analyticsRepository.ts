@@ -1,6 +1,7 @@
 import { prisma } from '../db/prisma';
 import { SafeUrlPolicy } from '../security/safeUrlPolicy';
 import { UrlNormalizer } from '../services/crawler/urlNormalizer';
+import { MetricProvenanceSource } from '../services/provenance/provenanceTypes';
 
 export interface GscFactUpsertInput {
   websiteId: string;
@@ -19,7 +20,7 @@ export interface GscFactUpsertInput {
   impressions: number;
   ctr: number;
   position: number;
-  provenance?: 'MEASURED_PROVIDER' | 'CALCULATED';
+  provenance?: MetricProvenanceSource | 'MEASURED_PROVIDER' | 'CALCULATED';
 }
 
 export interface Ga4LandingPageUpsertInput {
@@ -167,7 +168,7 @@ export class AnalyticsRepository {
               impressions: fact.impressions,
               ctr: fact.ctr,
               position: fact.position,
-              provenance: fact.provenance || 'MEASURED_PROVIDER',
+              provenance: fact.provenance === 'MEASURED_PROVIDER' ? 'GOOGLE_SEARCH_CONSOLE' : (fact.provenance || 'GOOGLE_SEARCH_CONSOLE'),
               urlMatchStatus,
               retrievedAt: new Date(),
             },
@@ -250,7 +251,7 @@ export class AnalyticsRepository {
               totalRevenue: row.totalRevenue || 0,
               currency: row.currency || 'USD',
               dataState: row.dataState || 'FINALIZED',
-              provenance: 'MEASURED_PROVIDER',
+              provenance: 'GOOGLE_ANALYTICS',
               urlMatchStatus,
               retrievedAt: new Date(),
             },
@@ -310,7 +311,7 @@ export class AnalyticsRepository {
               totalRevenue: row.totalRevenue || 0,
               currency: row.currency || 'USD',
               dataState: row.dataState || 'FINALIZED',
-              provenance: 'MEASURED_PROVIDER',
+              provenance: 'GOOGLE_ANALYTICS',
               retrievedAt: new Date(),
             },
           })

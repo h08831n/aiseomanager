@@ -62,7 +62,7 @@ describe('Phase 3: GoogleSearchConsoleProvider Test Suite', () => {
 
     expect(result.rows).toHaveLength(2);
     expect(result.dataState).toBe('FINALIZED');
-    expect(result.provenance).toBe('MEASURED_PROVIDER');
+    expect(result.provenance).toBe('GOOGLE_SEARCH_CONSOLE');
 
     const firstRow = result.rows[0];
     expect(firstRow.page).toBe('https://techscale.io/pricing');

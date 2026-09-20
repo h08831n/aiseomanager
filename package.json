@@ -18,6 +18,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "doctor": "tsx scripts/doctor.ts",
+    "telemetry:verify": "tsx scripts/verify_telemetry.ts",
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "verify:runtime": "bash scripts/verify-runtime.sh",

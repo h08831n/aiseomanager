@@ -100,7 +100,7 @@ export class IntegrationSyncEngine {
         impressions: row.impressions,
         ctr: row.ctr,
         position: row.position,
-        provenance: 'MEASURED_PROVIDER' as const,
+        provenance: 'GOOGLE_SEARCH_CONSOLE' as const,
       }));
 
       const siteUpserted = await AnalyticsRepository.upsertGscFacts(siteFacts);
@@ -150,7 +150,7 @@ export class IntegrationSyncEngine {
             impressions: row.impressions,
             ctr: row.ctr,
             position: row.position,
-            provenance: 'MEASURED_PROVIDER' as const,
+            provenance: 'GOOGLE_SEARCH_CONSOLE' as const,
           }));
 
           const upserted = await AnalyticsRepository.upsertGscFacts(facts);

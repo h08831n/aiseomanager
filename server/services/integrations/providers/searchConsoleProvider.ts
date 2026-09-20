@@ -1,3 +1,5 @@
+import { MetricProvenanceSource } from '../../provenance/provenanceTypes';
+
 export interface SearchConsoleProperty {
   siteUrl: string; // e.g. "sc-domain:example.com" or "https://example.com/"
   permissionLevel: 'siteOwner' | 'siteFullUser' | 'siteRestrictedUser' | 'siteUnverifiedUser' | string;
@@ -52,7 +54,7 @@ export interface SearchAnalyticsBatchResult {
   hasMore: boolean;
   nextStartRow?: number;
   retrievedAt: string;
-  provenance: 'MEASURED_PROVIDER';
+  provenance: 'GOOGLE_SEARCH_CONSOLE';
 }
 
 export interface SearchConsoleProvider {
