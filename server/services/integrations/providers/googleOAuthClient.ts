@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import { SafeUrlPolicy } from '../../../security/safeUrlPolicy';
+import { isProductionMode } from '../../../config/runtimeMode';
+
 
 export interface GoogleOAuthTokens {
   accessToken: string;
@@ -64,9 +66,15 @@ export class GoogleOAuthClient {
     if (envUri && envUri.trim().length > 0) {
       return envUri.trim();
     }
+    if (isProductionMode()) {
+      throw new Error(
+        'GOOGLE_OAUTH_REDIRECT_URI environment variable is required in production mode. Silent fallback to localhost is strictly prohibited.'
+      );
+    }
     const appUrl = process.env.APP_URL || 'http://localhost:3000';
     return `${appUrl.replace(/\/+$/, '')}/api/integrations/google/callback`;
   }
+
 
   /**
    * Generates a cryptographically random OAuth state token.

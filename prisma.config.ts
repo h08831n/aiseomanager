@@ -1,8 +1,10 @@
 import { defineConfig } from 'prisma/config';
 
-const dbUrl = process.env.DATABASE_URL || process.env.DIRECT_URL;
+// Prefer DIRECT_URL (unpooled direct PostgreSQL connection) for Prisma migrations,
+// falling back to DATABASE_URL if DIRECT_URL is identical or unpooled.
+const dbUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
 if (!dbUrl && process.env.NODE_ENV === 'production') {
-  console.warn('[PrismaConfig] DATABASE_URL and DIRECT_URL are undefined in production.');
+  console.error('[PrismaConfig] FATAL: Neither DIRECT_URL nor DATABASE_URL is configured in production.');
 }
 
 export default defineConfig({
@@ -14,3 +16,4 @@ export default defineConfig({
     url: dbUrl || '',
   },
 });
+

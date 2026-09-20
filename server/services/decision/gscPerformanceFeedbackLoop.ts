@@ -123,7 +123,7 @@ export class GscPerformanceFeedbackLoop {
         websiteId,
         date: { gte: preStart, lte: preEnd },
         channelGroup: 'Organic Search',
-        pagePath: { contains: urlPath },
+        landingPageUrl: { contains: urlPath },
       },
     });
 
@@ -132,7 +132,7 @@ export class GscPerformanceFeedbackLoop {
         websiteId,
         date: { gte: postStart, lte: postEnd },
         channelGroup: 'Organic Search',
-        pagePath: { contains: urlPath },
+        landingPageUrl: { contains: urlPath },
       },
     });
 

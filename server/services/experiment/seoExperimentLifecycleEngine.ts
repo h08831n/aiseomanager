@@ -162,7 +162,7 @@ export class SeoExperimentLifecycleEngine {
       where: {
         websiteId,
         channelGroup: 'Organic Search',
-        pagePath: { contains: urlPath },
+        landingPageUrl: { contains: urlPath },
       },
       orderBy: { date: 'desc' },
       take: 28,

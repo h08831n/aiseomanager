@@ -9,8 +9,30 @@ import { AnalyticsRepository } from '../repositories/analyticsRepository';
 import { PeriodComparisonEngine } from '../services/analytics/periodComparisonEngine';
 import { requireWebsiteAccess, requireWorkspaceAuth } from '../security/authMiddleware';
 import { WebsiteRepository } from '../repositories/websiteRepository';
+import { GoogleHealthService } from '../services/integrations/googleHealthService';
 
 export const integrationRoutes = Router();
+
+/**
+ * Health endpoint for Google integrations, Database availability, and Encryption subsystem.
+ * Returns { GSC: 'CONNECTED' | 'DISCONNECTED', GA4: 'CONNECTED' | 'DISCONNECTED', Database: 'READY' | 'ERROR', Encryption: 'READY' | 'ERROR' }
+ */
+integrationRoutes.get('/google/health', async (req: Request, res: Response) => {
+  try {
+    const websiteId = (req.query.websiteId as string) || undefined;
+    const health = await GoogleHealthService.getHealth({ websiteId });
+    return res.status(200).json(health);
+  } catch (err: any) {
+    return res.status(500).json({
+      GSC: 'DISCONNECTED',
+      GA4: 'DISCONNECTED',
+      Database: 'ERROR',
+      Encryption: 'ERROR',
+      error: err?.message || String(err),
+    });
+  }
+});
+
 
 /**
  * Initiates the Google OAuth authorization flow.

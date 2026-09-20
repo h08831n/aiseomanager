@@ -1,10 +1,19 @@
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { createApp } from './server/app';
+import { validateStartupEnvironment } from './server/config/environmentValidator';
+import { isProductionMode } from './server/config/runtimeMode';
 
 async function startServer() {
+  // 1. Strict Environment Validation on Startup
+  validateStartupEnvironment({
+    enforceStrict: isProductionMode(),
+    exitOnError: isProductionMode(),
+  });
+
   const app = createApp();
   const PORT = 3000;
+
 
   // Mount Vite Middleware for development and static fallback for production
   if (process.env.NODE_ENV !== 'production') {

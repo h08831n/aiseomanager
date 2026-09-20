@@ -126,10 +126,33 @@ export function createApp() {
     integrationRoutes(req, res, next);
   });
 
-  // Health endpoint
+  // Health endpoints
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', uptime: process.uptime() });
   });
+
+  // Google Integration, Database & Encryption Health Endpoint
+  const handleGoogleHealth = async (req: Request, res: Response) => {
+    try {
+      const { GoogleHealthService } = await import('./services/integrations/googleHealthService');
+      const websiteId = (req.query.websiteId as string) || undefined;
+      const health = await GoogleHealthService.getHealth({ websiteId });
+      return res.status(200).json(health);
+    } catch (err: any) {
+      return res.status(500).json({
+        GSC: 'DISCONNECTED',
+        GA4: 'DISCONNECTED',
+        Database: 'ERROR',
+        Encryption: 'ERROR',
+        error: err?.message || String(err),
+      });
+    }
+  };
+
+  app.get('/api/health/google', handleGoogleHealth);
+  app.get('/api/integrations/google/health', handleGoogleHealth);
+  app.get('/api/integrations/health', handleGoogleHealth);
+
 
   // Global Safe Error Handler
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {
