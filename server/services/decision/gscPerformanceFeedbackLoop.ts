@@ -7,7 +7,10 @@ export interface GscPerformanceMetrics {
   impressions: number | null;
   ctr: number | null;
   avgPosition: number | null;
+  organicSessions: number | null;
   conversions: number | null;
+  revenueEvents: number | null;
+  serpPosition: number | null;
 }
 
 export interface GscFeedbackEvaluationResult {
@@ -31,7 +34,10 @@ export interface GscFeedbackEvaluationResult {
     impressionsDeltaPct: number | null;
     ctrDeltaPct: number | null;
     positionImprovement: number | null;
+    organicSessionsDeltaPct: number | null;
     conversionsDeltaPct: number | null;
+    revenueDeltaPct: number | null;
+    serpPositionDelta: number | null;
   };
   syntheticControlAdjustedLift: number | null;
   isStatisticallySignificant: boolean;
@@ -102,12 +108,73 @@ export class GscPerformanceFeedbackLoop {
       },
     });
 
+    // Extract URL pathname for matching GA4 landing pages and SERP tracked URLs
+    let urlPath = targetUrl;
+    try {
+      const parsed = new URL(targetUrl);
+      urlPath = parsed.pathname;
+    } catch {
+      urlPath = targetUrl;
+    }
+
+    // 2. Query GA4 Landing Page Daily records (Organic Search channel)
+    const preGa4Facts = await prisma.ga4LandingPageDaily.findMany({
+      where: {
+        websiteId,
+        date: { gte: preStart, lte: preEnd },
+        channelGroup: 'Organic Search',
+        pagePath: { contains: urlPath },
+      },
+    });
+
+    const postGa4Facts = await prisma.ga4LandingPageDaily.findMany({
+      where: {
+        websiteId,
+        date: { gte: postStart, lte: postEnd },
+        channelGroup: 'Organic Search',
+        pagePath: { contains: urlPath },
+      },
+    });
+
+    const preOrganicSessions = preGa4Facts.length > 0 ? preGa4Facts.reduce((s, r) => s + r.sessions, 0) : null;
+    const postOrganicSessions = postGa4Facts.length > 0 ? postGa4Facts.reduce((s, r) => s + r.sessions, 0) : null;
+    const preConversions = preGa4Facts.length > 0 ? preGa4Facts.reduce((s, r) => s + r.keyEvents, 0) : null;
+    const postConversions = postGa4Facts.length > 0 ? postGa4Facts.reduce((s, r) => s + r.keyEvents, 0) : null;
+    const preRevenue = preGa4Facts.length > 0 ? preGa4Facts.reduce((s, r) => s + r.totalRevenue, 0) : null;
+    const postRevenue = postGa4Facts.length > 0 ? postGa4Facts.reduce((s, r) => s + r.totalRevenue, 0) : null;
+
+    // 3. Query SERP Rank Daily records for ranking movement and features
+    const preSerpFacts = await prisma.keywordRankDaily.findMany({
+      where: {
+        websiteId,
+        date: { gte: preStart, lte: preEnd },
+        rankedUrl: { contains: urlPath },
+      },
+      orderBy: { date: 'desc' },
+      take: 10,
+    });
+
+    const postSerpFacts = await prisma.keywordRankDaily.findMany({
+      where: {
+        websiteId,
+        date: { gte: postStart, lte: postEnd },
+        rankedUrl: { contains: urlPath },
+      },
+      orderBy: { date: 'desc' },
+      take: 10,
+    });
+
+    const preSerpPos = preSerpFacts.length > 0 ? preSerpFacts[0].rank : null;
+    const postSerpPos = postSerpFacts.length > 0 ? postSerpFacts[0].rank : null;
+    const serpPositionDelta =
+      preSerpPos !== null && postSerpPos !== null ? preSerpPos - postSerpPos : null;
+
     const hasPreData = preFacts.length > 0;
     const hasPostData = postFacts.length > 0;
     const hasSufficientData = hasPreData && hasPostData;
 
     if (!hasSufficientData) {
-      // SCIENTIFIC INTEGRITY: NO FALLBACK METRICS ALLOWED.
+      // SCIENTIFIC INTEGRITY: NO SYNTHETIC FALLBACK METRICS ALLOWED.
       // Return null metrics and explicitly note insufficient external telemetry.
       const result: GscFeedbackEvaluationResult = {
         interventionId,
@@ -123,7 +190,10 @@ export class GscPerformanceFeedbackLoop {
             impressions: hasPreData ? preFacts.reduce((s, r) => s + r.impressions, 0) : null,
             ctr: null,
             avgPosition: null,
-            conversions: null,
+            organicSessions: preOrganicSessions,
+            conversions: preConversions,
+            revenueEvents: preRevenue,
+            serpPosition: preSerpPos,
           },
         },
         postInterventionWindow: {
@@ -134,7 +204,10 @@ export class GscPerformanceFeedbackLoop {
             impressions: hasPostData ? postFacts.reduce((s, r) => s + r.impressions, 0) : null,
             ctr: null,
             avgPosition: null,
-            conversions: null,
+            organicSessions: postOrganicSessions,
+            conversions: postConversions,
+            revenueEvents: postRevenue,
+            serpPosition: postSerpPos,
           },
         },
         deltas: {
@@ -142,13 +215,16 @@ export class GscPerformanceFeedbackLoop {
           impressionsDeltaPct: null,
           ctrDeltaPct: null,
           positionImprovement: null,
+          organicSessionsDeltaPct: null,
           conversionsDeltaPct: null,
+          revenueDeltaPct: null,
+          serpPositionDelta,
         },
         syntheticControlAdjustedLift: null,
         isStatisticallySignificant: false,
         rankingVerificationSource: 'INSUFFICIENT_TELEMETRY',
         validationNote:
-          'INSUFFICIENT_TELEMETRY: Google Search Console has not recorded sufficient click/impression facts for this URL in the observation window. Fallback metrics are eliminated by strict truthfulness mandate. Zero SEO improvement claimed.',
+          'INSUFFICIENT_TELEMETRY: Real external measurement systems (GSC / GA4 / SERP) have not recorded empirical facts for this URL in the observation window. Zero synthetic fallback. Zero simulated success.',
       };
 
       return result;
@@ -185,7 +261,34 @@ export class GscPerformanceFeedbackLoop {
 
     const ctrDeltaPct = Number((postCtr - preCtr).toFixed(2));
     const positionImprovement = Number((avgPrePos - avgPostPos).toFixed(2));
-    const conversionsDeltaPct = Number((clicksDeltaPct * 0.85).toFixed(2));
+
+    // GA4 deltas strictly from real GA4 facts (never simulated!)
+    const organicSessionsDeltaPct =
+      preOrganicSessions !== null && postOrganicSessions !== null
+        ? preOrganicSessions > 0
+          ? Number((((postOrganicSessions - preOrganicSessions) / preOrganicSessions) * 100).toFixed(2))
+          : postOrganicSessions > 0
+          ? 100.0
+          : 0.0
+        : null;
+
+    const conversionsDeltaPct =
+      preConversions !== null && postConversions !== null
+        ? preConversions > 0
+          ? Number((((postConversions - preConversions) / preConversions) * 100).toFixed(2))
+          : postConversions > 0
+          ? 100.0
+          : 0.0
+        : null;
+
+    const revenueDeltaPct =
+      preRevenue !== null && postRevenue !== null
+        ? preRevenue > 0
+          ? Number((((postRevenue - preRevenue) / preRevenue) * 100).toFixed(2))
+          : postRevenue > 0
+          ? 100.0
+          : 0.0
+        : null;
 
     // Causal lift adjusted against baseline trend
     const syntheticControlAdjustedLift = Number((clicksDeltaPct - siteTrendDeltaPct).toFixed(2));
@@ -205,7 +308,10 @@ export class GscPerformanceFeedbackLoop {
           impressions: sumPreImpressions,
           ctr: Number(preCtr.toFixed(2)),
           avgPosition: Number(avgPrePos.toFixed(1)),
-          conversions: Math.round(sumPreClicks * 0.04),
+          organicSessions: preOrganicSessions,
+          conversions: preConversions,
+          revenueEvents: preRevenue,
+          serpPosition: preSerpPos,
         },
       },
       postInterventionWindow: {
@@ -216,7 +322,10 @@ export class GscPerformanceFeedbackLoop {
           impressions: sumPostImpressions,
           ctr: Number(postCtr.toFixed(2)),
           avgPosition: Number(avgPostPos.toFixed(1)),
-          conversions: Math.round(sumPostClicks * 0.04),
+          organicSessions: postOrganicSessions,
+          conversions: postConversions,
+          revenueEvents: postRevenue,
+          serpPosition: postSerpPos,
         },
       },
       deltas: {
@@ -224,25 +333,31 @@ export class GscPerformanceFeedbackLoop {
         impressionsDeltaPct,
         ctrDeltaPct,
         positionImprovement,
+        organicSessionsDeltaPct,
         conversionsDeltaPct,
+        revenueDeltaPct,
+        serpPositionDelta,
       },
       syntheticControlAdjustedLift,
       isStatisticallySignificant,
       rankingVerificationSource: 'GOOGLE_SEARCH_CONSOLE',
       validationNote:
-        `GSC Empirical Verification: Position shifted from ${avgPrePos.toFixed(1)} to ${avgPostPos.toFixed(1)} ` +
+        `Empirical Verification: GSC Position shifted from ${avgPrePos.toFixed(1)} to ${avgPostPos.toFixed(1)} ` +
         `(${positionImprovement > 0 ? '+' : ''}${positionImprovement} positions). Clicks delta: ${clicksDeltaPct}% ` +
-        `(Adjusted Causal Lift: ${syntheticControlAdjustedLift}% vs site-wide trend). Verified strictly via real Google Search Console facts.`,
+        `(Adjusted Causal Lift: ${syntheticControlAdjustedLift}% vs site-wide trend). ` +
+        (preConversions !== null ? `GA4 Conversions: ${preConversions} -> ${postConversions}. ` : `GA4 Conversions: Not configured. `) +
+        `Verified strictly via real external measurement systems.`,
     };
 
-    // Feed back into the Learning Loop Engine ONLY because real GSC data is present
+    // Feed back into the Learning Loop Engine ONLY when real empirical data confirms statistical significance
     await LearningLoopEngine.recordActionOutcome({
       ruleKey,
       websiteId,
       actionExecutionId: interventionId,
       provenanceSource: 'GOOGLE_SEARCH_CONSOLE',
-      outcome: syntheticControlAdjustedLift > 0 && positionImprovement > 0 ? 'SUCCESS' : 'FAILED',
+      outcome: isStatisticallySignificant && syntheticControlAdjustedLift > 0 ? 'SUCCESS' : 'FAILED',
       isPostObservationPerformance: true,
+      hasStatisticalEvidence: isStatisticallySignificant,
       metricDeltaPct: syntheticControlAdjustedLift,
       causalLift: syntheticControlAdjustedLift,
       syntheticControlDelta: siteTrendDeltaPct,
@@ -253,6 +368,9 @@ export class GscPerformanceFeedbackLoop {
         impressionsLiftPct: impressionsDeltaPct,
         rankDelta: positionImprovement,
         avgPosition: Number(avgPostPos.toFixed(1)),
+        organicSessionsDeltaPct,
+        conversionsDeltaPct,
+        serpPositionDelta,
         rankingVerificationSource: 'GOOGLE_SEARCH_CONSOLE',
       },
     });

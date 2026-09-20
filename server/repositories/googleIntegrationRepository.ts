@@ -9,6 +9,12 @@ export interface DecryptedGoogleTokens {
   expiresAt: Date;
   scopes: string[];
   email?: string;
+  authType?: 'OAUTH' | 'SERVICE_ACCOUNT';
+  serviceAccount?: {
+    clientEmail: string;
+    privateKey: string;
+    projectId?: string;
+  };
 }
 
 export interface GscBindingInput {
@@ -148,6 +154,135 @@ export class GoogleIntegrationRepository {
   }
 
   /**
+   * Saves or updates the Google Service Account connection for a website.
+   * Credentials (JSON key containing privateKey and clientEmail) are encrypted via AES-256-GCM.
+   */
+  public static async saveServiceAccountConnection(params: {
+    websiteId: string;
+    serviceAccount: {
+      clientEmail: string;
+      privateKey: string;
+      projectId?: string;
+    };
+    scopes?: string[];
+  }): Promise<{ integrationId: string; status: IntegrationStatus }> {
+    const scopes = params.scopes || GoogleOAuthClient.DEFAULT_SCOPES;
+    const tokenResult = await GoogleOAuthClient.getServiceAccountAccessToken({
+      clientEmail: params.serviceAccount.clientEmail,
+      privateKey: params.serviceAccount.privateKey,
+      scopes,
+    });
+
+    const expiresAt = new Date(Date.now() + tokenResult.expiresIn * 1000);
+    const rawSecretPayload = JSON.stringify({
+      accessToken: tokenResult.accessToken,
+      expiresAt: expiresAt.toISOString(),
+      scopes: tokenResult.scopes,
+      email: params.serviceAccount.clientEmail,
+      authType: 'SERVICE_ACCOUNT',
+      serviceAccount: {
+        clientEmail: params.serviceAccount.clientEmail,
+        privateKey: params.serviceAccount.privateKey,
+        projectId: params.serviceAccount.projectId,
+      },
+    });
+
+    const encrypted = SecretVault.encrypt(rawSecretPayload);
+    const encryptedCredentials = JSON.stringify(encrypted);
+
+    const hasGscScope = scopes.some(
+      (s) => s.includes('webmasters.readonly') || s.includes('auth/webmasters')
+    );
+    const hasGa4Scope = scopes.some(
+      (s) => s.includes('analytics.readonly') || s.includes('auth/analytics')
+    );
+
+    const integration = await prisma.integration.upsert({
+      where: {
+        websiteId_provider: {
+          websiteId: params.websiteId,
+          provider: 'GSC',
+        },
+      },
+      update: {
+        status: hasGscScope ? 'CONNECTED' : 'NOT_CONFIGURED',
+        connectedAccount: params.serviceAccount.clientEmail,
+        accountIdentifier: params.serviceAccount.clientEmail,
+        grantedScopes: scopes,
+        tokenExpiry: expiresAt,
+        connectedAt: new Date(),
+        lastRefreshAt: new Date(),
+        lastSuccessfulApiCallAt: new Date(),
+        lastError: null,
+        message: hasGscScope
+          ? `Connected to Google Search Console via Service Account (${params.serviceAccount.clientEmail})`
+          : `Service account connected without Google Search Console scope.`,
+        encryptedCredentials,
+      },
+      create: {
+        websiteId: params.websiteId,
+        provider: 'GSC',
+        status: hasGscScope ? 'CONNECTED' : 'NOT_CONFIGURED',
+        connectedAccount: params.serviceAccount.clientEmail,
+        accountIdentifier: params.serviceAccount.clientEmail,
+        grantedScopes: scopes,
+        tokenExpiry: expiresAt,
+        connectedAt: new Date(),
+        lastRefreshAt: new Date(),
+        lastSuccessfulApiCallAt: new Date(),
+        lastError: null,
+        message: hasGscScope
+          ? `Connected to Google Search Console via Service Account (${params.serviceAccount.clientEmail})`
+          : `Service account connected without Google Search Console scope.`,
+        encryptedCredentials,
+      },
+    });
+
+    await prisma.integration.upsert({
+      where: {
+        websiteId_provider: {
+          websiteId: params.websiteId,
+          provider: 'GA4',
+        },
+      },
+      update: {
+        status: hasGa4Scope ? 'CONNECTED' : 'NOT_CONFIGURED',
+        connectedAccount: params.serviceAccount.clientEmail,
+        accountIdentifier: params.serviceAccount.clientEmail,
+        grantedScopes: scopes,
+        tokenExpiry: expiresAt,
+        connectedAt: new Date(),
+        lastRefreshAt: new Date(),
+        lastSuccessfulApiCallAt: new Date(),
+        lastError: null,
+        message: hasGa4Scope
+          ? `Connected to Google Analytics 4 via Service Account (${params.serviceAccount.clientEmail})`
+          : `Service account connected without Google Analytics 4 scope.`,
+        encryptedCredentials,
+      },
+      create: {
+        websiteId: params.websiteId,
+        provider: 'GA4',
+        status: hasGa4Scope ? 'CONNECTED' : 'NOT_CONFIGURED',
+        connectedAccount: params.serviceAccount.clientEmail,
+        accountIdentifier: params.serviceAccount.clientEmail,
+        grantedScopes: scopes,
+        tokenExpiry: expiresAt,
+        connectedAt: new Date(),
+        lastRefreshAt: new Date(),
+        lastSuccessfulApiCallAt: new Date(),
+        lastError: null,
+        message: hasGa4Scope
+          ? `Connected to Google Analytics 4 via Service Account (${params.serviceAccount.clientEmail})`
+          : `Service account connected without Google Analytics 4 scope.`,
+        encryptedCredentials,
+      },
+    });
+
+    return { integrationId: integration.id, status: integration.status };
+  }
+
+  /**
    * Retrieves decrypted Google tokens, automatically refreshing the access token if expired.
    */
   public static async getValidAccessToken(
@@ -199,6 +334,8 @@ export class GoogleIntegrationRepository {
         expiresAt: new Date(parsed.expiresAt),
         scopes: parsed.scopes || [],
         email: parsed.email,
+        authType: parsed.authType || 'OAUTH',
+        serviceAccount: parsed.serviceAccount,
       };
     } catch (err: any) {
       await this.markDegraded(websiteId, `Failed to decrypt Google credentials: ${err.message}`);
@@ -207,45 +344,87 @@ export class GoogleIntegrationRepository {
 
     // Check if token expires within 5 minutes
     const isExpiringSoon = payload.expiresAt.getTime() - Date.now() < 5 * 60 * 1000;
-    if (isExpiringSoon && payload.refreshToken) {
-      try {
-        const refreshed = await GoogleOAuthClient.refreshAccessToken(payload.refreshToken);
-        const newExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000);
+    if (isExpiringSoon) {
+      if (payload.authType === 'SERVICE_ACCOUNT' && payload.serviceAccount) {
+        try {
+          const refreshed = await GoogleOAuthClient.getServiceAccountAccessToken({
+            clientEmail: payload.serviceAccount.clientEmail,
+            privateKey: payload.serviceAccount.privateKey,
+            scopes: payload.scopes,
+          });
+          const newExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000);
+          const updatedSecretPayload = JSON.stringify({
+            accessToken: refreshed.accessToken,
+            expiresAt: newExpiresAt.toISOString(),
+            scopes: payload.scopes,
+            email: payload.email,
+            authType: 'SERVICE_ACCOUNT',
+            serviceAccount: payload.serviceAccount,
+          });
+          const newEncrypted = SecretVault.encrypt(updatedSecretPayload);
 
-        const updatedSecretPayload = JSON.stringify({
-          accessToken: refreshed.accessToken,
-          refreshToken: payload.refreshToken,
-          expiresAt: newExpiresAt.toISOString(),
-          scopes: payload.scopes,
-          email: payload.email,
-        });
+          await prisma.integration.updateMany({
+            where: { websiteId, provider: { in: ['GSC', 'GA4'] } },
+            data: {
+              tokenExpiry: newExpiresAt,
+              lastRefreshAt: new Date(),
+              lastSuccessfulApiCallAt: new Date(),
+              lastError: null,
+              encryptedCredentials: JSON.stringify(newEncrypted),
+            },
+          });
 
-        const newEncrypted = SecretVault.encrypt(updatedSecretPayload);
-
-        await prisma.integration.updateMany({
-          where: { websiteId, provider: { in: ['GSC', 'GA4'] } },
-          data: {
-            tokenExpiry: newExpiresAt,
-            lastRefreshAt: new Date(),
-            lastSuccessfulApiCallAt: new Date(),
-            lastError: null,
-            encryptedCredentials: JSON.stringify(newEncrypted),
-          },
-        });
-
-        return {
-          accessToken: refreshed.accessToken,
-          email: payload.email,
-          scopes: payload.scopes,
-          integrationId: integration.id,
-        };
-      } catch (refreshErr: any) {
-        if (refreshErr.message.includes('TOKEN_REVOKED_OR_INVALID')) {
-          await this.markRevoked(websiteId, refreshErr.message);
-        } else {
-          await this.markDegraded(websiteId, refreshErr.message);
+          return {
+            accessToken: refreshed.accessToken,
+            email: payload.email,
+            scopes: payload.scopes,
+            integrationId: integration.id,
+          };
+        } catch (refreshErr: any) {
+          await this.markDegraded(websiteId, `Service account token refresh failed: ${refreshErr.message}`);
+          throw refreshErr;
         }
-        throw refreshErr;
+      } else if (payload.refreshToken) {
+        try {
+          const refreshed = await GoogleOAuthClient.refreshAccessToken(payload.refreshToken);
+          const newExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000);
+
+          const updatedSecretPayload = JSON.stringify({
+            accessToken: refreshed.accessToken,
+            refreshToken: payload.refreshToken,
+            expiresAt: newExpiresAt.toISOString(),
+            scopes: payload.scopes,
+            email: payload.email,
+            authType: 'OAUTH',
+          });
+
+          const newEncrypted = SecretVault.encrypt(updatedSecretPayload);
+
+          await prisma.integration.updateMany({
+            where: { websiteId, provider: { in: ['GSC', 'GA4'] } },
+            data: {
+              tokenExpiry: newExpiresAt,
+              lastRefreshAt: new Date(),
+              lastSuccessfulApiCallAt: new Date(),
+              lastError: null,
+              encryptedCredentials: JSON.stringify(newEncrypted),
+            },
+          });
+
+          return {
+            accessToken: refreshed.accessToken,
+            email: payload.email,
+            scopes: payload.scopes,
+            integrationId: integration.id,
+          };
+        } catch (refreshErr: any) {
+          if (refreshErr.message.includes('TOKEN_REVOKED_OR_INVALID')) {
+            await this.markRevoked(websiteId, refreshErr.message);
+          } else {
+            await this.markDegraded(websiteId, refreshErr.message);
+          }
+          throw refreshErr;
+        }
       }
     }
 

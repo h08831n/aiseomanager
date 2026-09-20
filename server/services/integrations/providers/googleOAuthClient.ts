@@ -18,6 +18,13 @@ export interface GoogleTokenInfo {
   issuedTo?: string;
 }
 
+export interface GoogleServiceAccountCredentials {
+  clientEmail: string;
+  privateKey: string;
+  projectId?: string;
+  tokenUri?: string;
+}
+
 export class GoogleOAuthClient {
   public static readonly DEFAULT_SCOPES = [
     'https://www.googleapis.com/auth/webmasters.readonly',
@@ -236,6 +243,80 @@ export class GoogleOAuthClient {
       return res.ok;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Generates an OAuth 2.0 access token using Google Service Account credentials
+   * via RFC 7523 RSA-SHA256 JWT Bearer Grant.
+   */
+  public static async getServiceAccountAccessToken(params: {
+    clientEmail: string;
+    privateKey: string;
+    scopes?: string[];
+    tokenUri?: string;
+  }): Promise<{ accessToken: string; expiresIn: number; tokenType: string; scopes: string[] }> {
+    const scopes = params.scopes || this.DEFAULT_SCOPES;
+    const tokenUri = params.tokenUri || 'https://oauth2.googleapis.com/token';
+    const now = Math.floor(Date.now() / 1000);
+
+    const header = {
+      alg: 'RS256',
+      typ: 'JWT',
+    };
+
+    const claimSet = {
+      iss: params.clientEmail,
+      scope: scopes.join(' '),
+      aud: tokenUri,
+      exp: now + 3600,
+      iat: now,
+    };
+
+    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const encodedClaims = Buffer.from(JSON.stringify(claimSet)).toString('base64url');
+    const signInput = `${encodedHeader}.${encodedClaims}`;
+
+    let formattedKey = params.privateKey.trim();
+    if (formattedKey.includes('\\n')) {
+      formattedKey = formattedKey.replace(/\\n/g, '\n');
+    }
+
+    try {
+      const signer = crypto.createSign('RSA-SHA256');
+      signer.update(signInput);
+      const signature = signer.sign(formattedKey, 'base64url');
+      const jwtAssertion = `${signInput}.${signature}`;
+
+      const res = await fetch(tokenUri, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+        },
+        body: new URLSearchParams({
+          grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+          assertion: jwtAssertion,
+        }).toString(),
+      });
+
+      if (!res.ok) {
+        const err = await res.text().catch(() => '');
+        throw new Error(`SERVICE_ACCOUNT_AUTH_FAILED (${res.status}): Google service account authorization failed: ${err}`);
+      }
+
+      const data = (await res.json()) as any;
+      return {
+        accessToken: data.access_token,
+        expiresIn: data.expires_in || 3600,
+        tokenType: data.token_type || 'Bearer',
+        scopes,
+      };
+    } catch (err: any) {
+      if (err.message?.startsWith('SERVICE_ACCOUNT_AUTH_FAILED')) {
+        throw err;
+      }
+      throw new Error(`SERVICE_ACCOUNT_KEY_INVALID: Failed to sign JWT with service account private key: ${err.message}`);
     }
   }
 }

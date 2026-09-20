@@ -232,4 +232,103 @@ export class GoogleAnalytics4Provider implements AnalyticsProvider {
       };
     }
   }
+
+  /**
+   * Retrieves verified organic search performance metrics from GA4:
+   * - organic sessions
+   * - conversions (key events)
+   * - revenue events (purchase revenue)
+   */
+  public async queryOrganicPerformance(
+    accessToken: string,
+    propertyId: string,
+    options: {
+      startDate: string;
+      endDate: string;
+      landingPageUrl?: string;
+      limit?: number;
+    }
+  ): Promise<{
+    organicSessions: number;
+    conversions: number;
+    revenueEvents: number;
+    currencyCode: string;
+    landingPages: {
+      landingPageUrl: string;
+      sessions: number;
+      conversions: number;
+      revenue: number;
+    }[];
+    provenance: 'GOOGLE_ANALYTICS';
+    retrievedAt: string;
+  }> {
+    const cleanId = propertyId.replace(/^properties\//, '');
+
+    const dimensionFilter = options.landingPageUrl
+      ? {
+          andGroup: {
+            expressions: [
+              {
+                filter: {
+                  fieldName: 'sessionDefaultChannelGroup',
+                  stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
+                },
+              },
+              {
+                filter: {
+                  fieldName: 'landingPagePlusQueryString',
+                  stringFilter: { matchType: 'CONTAINS', value: options.landingPageUrl },
+                },
+              },
+            ],
+          },
+        }
+      : {
+          filter: {
+            fieldName: 'sessionDefaultChannelGroup',
+            stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
+          },
+        };
+
+    const report = await this.runReport(accessToken, cleanId, {
+      startDate: options.startDate,
+      endDate: options.endDate,
+      dimensions: ['landingPagePlusQueryString'],
+      metrics: ['sessions', 'conversions', 'purchaseRevenue'],
+      dimensionFilter,
+      limit: options.limit || 100,
+    });
+
+    let totalSessions = 0;
+    let totalConversions = 0;
+    let totalRevenue = 0;
+
+    const landingPages = report.rows.map((row) => {
+      const pageUrl = row.dimensionValues[0] || '';
+      const sessions = row.metricValues[0] || 0;
+      const conversions = row.metricValues[1] || 0;
+      const revenue = row.metricValues[2] || 0;
+
+      totalSessions += sessions;
+      totalConversions += conversions;
+      totalRevenue += revenue;
+
+      return {
+        landingPageUrl: pageUrl,
+        sessions,
+        conversions,
+        revenue,
+      };
+    });
+
+    return {
+      organicSessions: totalSessions,
+      conversions: totalConversions,
+      revenueEvents: totalRevenue,
+      currencyCode: report.currencyCode,
+      landingPages,
+      provenance: 'GOOGLE_ANALYTICS',
+      retrievedAt: new Date().toISOString(),
+    };
+  }
 }

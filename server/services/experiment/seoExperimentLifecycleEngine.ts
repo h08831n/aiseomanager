@@ -56,6 +56,12 @@ export interface ExperimentLifecycleResult {
       position: number | null;
       provenance: MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY';
     };
+    ga4Baseline?: {
+      organicSessions: number | null;
+      conversions: number | null;
+      revenue: number | null;
+      provenance: MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY';
+    };
   };
   change?: {
     actionExecutionId: string;
@@ -80,7 +86,9 @@ export interface ExperimentLifecycleResult {
     ctrDeltaPct: number | null;
     positionImprovement: number | null;
     serpPositionDelta: number | null;
+    organicSessionsLiftPct?: number | null;
     conversionsLiftPct: number | null;
+    revenueDeltaPct?: number | null;
     syntheticControlAdjustedLift: number | null;
     isStatisticallySignificant: boolean;
     internalCodeHygieneDelta: number;
@@ -135,7 +143,7 @@ export class SeoExperimentLifecycleEngine {
 
     const preDom = await SyntheticHttpFetcher.fetchAndParse(task.targetUrl, platform);
 
-    // Initial GSC and SERP Baseline Facts from database if available
+    // Initial GSC, GA4, and SERP Baseline Facts from database if available
     const gscFacts = await prisma.gscSearchAnalyticsFact.findMany({
       where: {
         websiteId,
@@ -143,6 +151,30 @@ export class SeoExperimentLifecycleEngine {
       },
       orderBy: { date: 'desc' },
       take: 28,
+    });
+
+    let urlPath = task.targetUrl;
+    try {
+      urlPath = new URL(task.targetUrl).pathname;
+    } catch {}
+
+    const ga4Facts = await prisma.ga4LandingPageDaily.findMany({
+      where: {
+        websiteId,
+        channelGroup: 'Organic Search',
+        pagePath: { contains: urlPath },
+      },
+      orderBy: { date: 'desc' },
+      take: 28,
+    });
+
+    const serpRankFacts = await prisma.keywordRankDaily.findMany({
+      where: {
+        websiteId,
+        rankedUrl: { contains: urlPath },
+      },
+      orderBy: { date: 'desc' },
+      take: 5,
     });
 
     const hasRealGsc = gscFacts.length > 0;
@@ -163,10 +195,19 @@ export class SeoExperimentLifecycleEngine {
       provenance: (hasRealGsc ? 'GOOGLE_SEARCH_CONSOLE' : 'INSUFFICIENT_TELEMETRY') as MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY',
     };
 
+    const hasRealGa4 = ga4Facts.length > 0;
+    const ga4Baseline = {
+      organicSessions: hasRealGa4 ? ga4Facts.reduce((s, r) => s + r.sessions, 0) : null,
+      conversions: hasRealGa4 ? ga4Facts.reduce((s, r) => s + r.keyEvents, 0) : null,
+      revenue: hasRealGa4 ? ga4Facts.reduce((s, r) => s + r.totalRevenue, 0) : null,
+      provenance: (hasRealGa4 ? 'MEASURED_PROVIDER' : 'INSUFFICIENT_TELEMETRY') as MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY',
+    };
+
+    const hasRealSerp = serpRankFacts.length > 0;
     const serpTrackingBaseline = {
-      keyword: task.targetKeyword || 'قیمت میلگرد و آهن آلات',
-      position: gscBaselineAvgPos ?? null,
-      provenance: (hasRealGsc ? 'GOOGLE_SEARCH_CONSOLE' : 'INSUFFICIENT_TELEMETRY') as MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY',
+      keyword: task.targetKeyword || 'default_keyword',
+      position: hasRealSerp ? serpRankFacts[0].rank : null,
+      provenance: (hasRealSerp ? 'SERP_PROVIDER' : 'INSUFFICIENT_TELEMETRY') as MetricProvenanceSource | 'INSUFFICIENT_TELEMETRY',
     };
 
     const baselineSnapshot = {
@@ -181,6 +222,7 @@ export class SeoExperimentLifecycleEngine {
       },
       gscBaseline,
       serpTrackingBaseline,
+      ga4Baseline,
     };
 
     stages.push({
@@ -188,10 +230,11 @@ export class SeoExperimentLifecycleEngine {
       status: 'COMPLETED',
       timestamp: new Date().toISOString(),
       summary: hasRealGsc
-        ? `Baseline recorded: GSC Avg Pos: ${gscBaseline.avgPosition}, Clicks: ${gscBaseline.clicks}/day, Impressions: ${gscBaseline.impressions}/day, SERP Keyword "${serpTrackingBaseline.keyword}" Rank: #${serpTrackingBaseline.position}. (Provenance: GOOGLE_SEARCH_CONSOLE. Internal code hygiene score: ${baselineHealthAudit.overallScore}/100 strictly diagnostic).`
-        : `Baseline recorded: Internal code hygiene score: ${baselineHealthAudit.overallScore}/100. GSC telemetry: INSUFFICIENT_DATA (Zero synthetic fallback metrics applied; awaiting live GSC sync).`,
+        ? `Baseline recorded: GSC Avg Pos: ${gscBaseline.avgPosition}, Clicks: ${gscBaseline.clicks}/day, Impressions: ${gscBaseline.impressions}/day, SERP Keyword "${serpTrackingBaseline.keyword}" Rank: #${serpTrackingBaseline.position ?? 'N/A'}. (Provenance: GOOGLE_SEARCH_CONSOLE. Internal code hygiene score: ${baselineHealthAudit.overallScore}/100 strictly diagnostic).`
+        : `Baseline recorded: Internal code hygiene score: ${baselineHealthAudit.overallScore}/100. External telemetry (GSC / GA4 / SERP): INSUFFICIENT_DATA (Zero synthetic fallback metrics applied; awaiting live external sync).`,
       data: {
         gscBaseline,
+        ga4Baseline,
         serpTrackingBaseline,
         internalCodeHygieneScore: baselineHealthAudit.overallScore,
         targetUrl: task.targetUrl,
@@ -499,21 +542,23 @@ export class SeoExperimentLifecycleEngine {
 
     const internalHygieneDelta = postHealthAudit.overallScore - baselineHealthAudit.overallScore;
 
-    // Sole proof metrics: GSC clicks, impressions, CTR, average position, SERP position delta
+    // Sole proof metrics: GSC clicks, impressions, CTR, average position, GA4 sessions/conversions/revenue, SERP position delta
     const clicksLiftPct = gscFeedback.deltas.clicksDeltaPct;
     const impressionsLiftPct = gscFeedback.deltas.impressionsDeltaPct;
     const ctrDeltaPct = gscFeedback.deltas.ctrDeltaPct;
     const positionImprovement = gscFeedback.deltas.positionImprovement;
+    const organicSessionsLiftPct = gscFeedback.deltas.organicSessionsDeltaPct;
     const conversionsLiftPct = gscFeedback.deltas.conversionsDeltaPct;
-    const serpPositionDelta = positionImprovement;
+    const revenueDeltaPct = gscFeedback.deltas.revenueDeltaPct;
+    const serpPositionDelta = gscFeedback.deltas.serpPositionDelta ?? positionImprovement;
 
     stages.push({
       stage: 'STAGE_5_IMPACT_MEASUREMENT',
       status: 'COMPLETED',
       timestamp: new Date().toISOString(),
       summary: gscFeedback.hasSufficientData
-        ? `Impact verified via Google Search Console & SERP tracking: Clicks: ${clicksLiftPct}% | Impressions: ${impressionsLiftPct}% | CTR: ${ctrDeltaPct}% | Avg Position Improvement: ${positionImprovement} positions. Synthetic control adjusted lift: ${gscFeedback.syntheticControlAdjustedLift}%. (Provenance: GOOGLE_SEARCH_CONSOLE. Internal code hygiene delta +${internalHygieneDelta} pts logged for diagnostic reference only; never used as ranking proof).`
-        : `Impact measurement recorded: Zero external ranking improvement claimed. Google Search Console has insufficient empirical facts for the observation window. (Internal code hygiene delta: +${internalHygieneDelta} pts is strictly diagnostic and rejected as proof of ranking).`,
+        ? `Impact verified via GSC, GA4 & SERP tracking: Clicks: ${clicksLiftPct}% | Impressions: ${impressionsLiftPct}% | CTR: ${ctrDeltaPct}% | Avg Pos Delta: ${positionImprovement} positions | GA4 Organic Sessions: ${organicSessionsLiftPct ?? 'N/A'}% | GA4 Conversions: ${conversionsLiftPct ?? 'N/A'}% | GA4 Revenue: ${revenueDeltaPct ?? 'N/A'}% | SERP Rank Delta: ${serpPositionDelta ?? 'N/A'}. Synthetic control adjusted lift: ${gscFeedback.syntheticControlAdjustedLift}%. (Provenance: MEASURED_PROVIDER. Internal code hygiene delta +${internalHygieneDelta} pts logged for diagnostic reference only; never used as ranking proof).`
+        : `Impact measurement recorded: Zero external ranking improvement claimed. External measurement systems (GSC / GA4 / SERP) have insufficient empirical facts for the observation window. (Internal code hygiene delta: +${internalHygieneDelta} pts is strictly diagnostic and rejected as proof of ranking).`,
       data: {
         rankingProofSource: gscFeedback.rankingVerificationSource,
         provenance: 'GOOGLE_SEARCH_CONSOLE',
@@ -523,7 +568,10 @@ export class SeoExperimentLifecycleEngine {
         impressionsLiftPct,
         ctrDeltaPct,
         positionImprovement,
+        serpPositionDelta,
+        organicSessionsLiftPct,
         conversionsLiftPct,
+        revenueDeltaPct,
         syntheticControlAdjustedLift: gscFeedback.syntheticControlAdjustedLift,
         isStatisticallySignificant: gscFeedback.isStatisticallySignificant,
         internalCodeHygieneDelta: internalHygieneDelta,
@@ -604,7 +652,9 @@ export class SeoExperimentLifecycleEngine {
         ctrDeltaPct,
         positionImprovement,
         serpPositionDelta,
+        organicSessionsLiftPct,
         conversionsLiftPct,
+        revenueDeltaPct,
         syntheticControlAdjustedLift: gscFeedback.syntheticControlAdjustedLift,
         isStatisticallySignificant: gscFeedback.isStatisticallySignificant,
         internalCodeHygieneDelta: internalHygieneDelta,

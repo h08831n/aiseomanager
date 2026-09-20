@@ -239,4 +239,124 @@ export class GoogleSearchConsoleProvider implements SearchConsoleProvider {
       };
     }
   }
+
+  /**
+   * High-level query retrieving all 6 core GSC search performance metrics:
+   * queries, pages, clicks, impressions, CTR, and average position.
+   */
+  public async querySearchPerformanceMetrics(
+    accessToken: string,
+    propertyId: string,
+    options: {
+      startDate: string;
+      endDate: string;
+      pageUrl?: string;
+      query?: string;
+      dimensions?: ('query' | 'page' | 'date' | 'country' | 'device')[];
+      rowLimit?: number;
+    }
+  ): Promise<{
+    rows: {
+      query?: string;
+      page?: string;
+      date?: string;
+      clicks: number;
+      impressions: number;
+      ctr: number;
+      position: number;
+    }[];
+    totals: {
+      clicks: number;
+      impressions: number;
+      ctr: number;
+      averagePosition: number;
+      totalQueries: number;
+      totalPages: number;
+    };
+    provenance: 'GOOGLE_SEARCH_CONSOLE';
+    retrievedAt: string;
+  }> {
+    const dimensionFilterGroups: any[] = [];
+    if (options.pageUrl) {
+      dimensionFilterGroups.push({
+        filters: [
+          {
+            dimension: 'page',
+            operator: 'contains',
+            expression: options.pageUrl,
+          },
+        ],
+      });
+    }
+    if (options.query) {
+      dimensionFilterGroups.push({
+        filters: [
+          {
+            dimension: 'query',
+            operator: 'contains',
+            expression: options.query,
+          },
+        ],
+      });
+    }
+
+    const dimensions = options.dimensions || ['query', 'page', 'date'];
+
+    const result = await this.querySearchAnalytics(accessToken, propertyId, {
+      startDate: options.startDate,
+      endDate: options.endDate,
+      dimensions,
+      dimensionFilterGroups: dimensionFilterGroups.length > 0 ? dimensionFilterGroups : undefined,
+      rowLimit: options.rowLimit || 1000,
+    });
+
+    let totalClicks = 0;
+    let totalImpressions = 0;
+    let weightedPositionSum = 0;
+    const uniqueQueries = new Set<string>();
+    const uniquePages = new Set<string>();
+
+    const rows = result.rows.map((r) => {
+      totalClicks += r.clicks;
+      totalImpressions += r.impressions;
+      weightedPositionSum += r.position * r.impressions;
+
+      if (r.query) uniqueQueries.add(r.query);
+      if (r.page) uniquePages.add(r.page);
+
+      return {
+        query: r.query,
+        page: r.page,
+        date: r.date,
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.ctr,
+        position: r.position,
+      };
+    });
+
+    const averagePosition =
+      totalImpressions > 0
+        ? Number((weightedPositionSum / totalImpressions).toFixed(2))
+        : rows.length > 0
+        ? Number((rows.reduce((acc, r) => acc + r.position, 0) / rows.length).toFixed(2))
+        : 0;
+
+    const overallCtr =
+      totalImpressions > 0 ? Number(((totalClicks / totalImpressions) * 100).toFixed(2)) : 0;
+
+    return {
+      rows,
+      totals: {
+        clicks: totalClicks,
+        impressions: totalImpressions,
+        ctr: overallCtr,
+        averagePosition,
+        totalQueries: uniqueQueries.size,
+        totalPages: uniquePages.size,
+      },
+      provenance: 'GOOGLE_SEARCH_CONSOLE',
+      retrievedAt: new Date().toISOString(),
+    };
+  }
 }
